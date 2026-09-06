@@ -1,0 +1,159 @@
+{
+  "version": 2,
+  "name": "Helix v0.3.4 staged-work continuity and protocol recovery",
+  "preflight": [
+    {
+      "type": "sha256",
+      "name": "Check helix.py baseline",
+      "path": "helix.py",
+      "equals": "66e8526d1680dba8346cc876548d28ddd303ac4840600c341745a460eb554576"
+    },
+    {
+      "type": "sha256",
+      "name": "Check coder prompt baseline",
+      "path": "prompts/coder.txt",
+      "equals": "60c5e0b8b182b2b6e83fc9295acd095e6052fe0aa7c478cf6f2a7f42384f87eb"
+    },
+    {
+      "type": "sha256",
+      "name": "Check tests baseline",
+      "path": "tests/test_helix.py",
+      "equals": "c56df3283d793c0fc14ff4dd44b22060bc7c4d01b45874f5fa37286936db1277"
+    },
+    {
+      "type": "sha256",
+      "name": "Check pyproject baseline",
+      "path": "pyproject.toml",
+      "equals": "f030e741d41f304d77ee2a89a7b8517d440f24616f6125a69479026e12c33aca"
+    },
+    {
+      "type": "sha256",
+      "name": "Check README baseline",
+      "path": "README.md",
+      "equals": "d62697456c2dbcc5c897d434b80bfdf149789f3b3a1f3baff3cd035a4f0f2e74"
+    }
+  ],
+  "files": [
+    {
+      "path": "helix.py",
+      "sha256": "66e8526d1680dba8346cc876548d28ddd303ac4840600c341745a460eb554576",
+      "edits": [
+        {
+          "op": "replace",
+          "old": "VERSION = \"0.3.3\"\n",
+          "new": "VERSION = \"0.3.4\"\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "insert_before",
+          "anchor": "    def _failure_recovery_instruction(self, state: AgentState) -> str:\n",
+          "content": "    def _active_staged_file(self, state: AgentState) -> str | None:\n        if not state.staged_files:\n            return None\n\n        # File creation is intentionally serialized. If multiple staged files\n        # somehow exist, continue the oldest stable ordering rather than\n        # allowing the model to wander into unrelated files.\n        return sorted(state.staged_files)[0]\n\n    def _staged_work_guard(\n        self,\n        tool: str,\n        args: dict[str, Any],\n        state: AgentState,\n    ) -> str | None:\n        active = self._active_staged_file(state)\n        if not active:\n            return None\n\n        target = str(args.get(\"path\", \"\"))\n\n        if tool == \"list_files\":\n            return (\n                f\"Unfinished staged file: {active}. \"\n                \"Repository rescanning is blocked while staged work is active. \"\n                f\"Continue {active} using append_file, read_file, or finish_file.\"\n            )\n\n        if tool == \"read_file\" and target:\n            try:\n                normalized = self.workspace.normalize_relative(target)\n            except Exception:\n                normalized = target\n\n            if normalized != active:\n                return (\n                    f\"Unrelated read blocked. {active} is currently staged and \"\n                    \"unfinished. \"\n                    f'Do not read \"{target}\". '\n                    f'Continue using append_file(path=\"{active}\"), '\n                    f'read_file(path=\"{active}\"), or '\n                    f'finish_file(path=\"{active}\").'\n                )\n\n        if tool == \"begin_file\" and target:\n            try:\n                normalized = self.workspace.normalize_relative(target)\n            except Exception:\n                normalized = target\n\n            if normalized != active:\n                return (\n                    f\"Cannot begin {target} while {active} is staged and unfinished. \"\n                    f\"Complete {active} first.\"\n                )\n\n        return None\n\n    def _tool_schema_for_repair(\n        self,\n        attempted_action: dict[str, Any] | None,\n    ) -> str:\n        if not attempted_action:\n            return json.dumps(TOOLS, indent=2)\n\n        tool = attempted_action.get(\"tool\")\n        if isinstance(tool, str) and tool in TOOLS:\n            return json.dumps(\n                {\n                    \"tool\": tool,\n                    \"args\": TOOLS[tool],\n                },\n                indent=2,\n            )\n\n        return json.dumps(TOOLS, indent=2)\n\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "        if tool == \"list_files\":\n            if (\n                state.last_tool_failure\n                and state.last_tool_failure.get(\"tool\") == \"patch_file\"\n            ):\n                path = state.last_tool_failure.get(\"path\", \"the failed file\")\n                return (\n                    False,\n                    f\"Patch recovery required for {path}. \"\n                    \"Do not rescan the repository. Read the failed file and \"\n                    \"correct the patch_file action first.\",\n                )\n\n            return True, json.dumps(self.workspace.list_files(), indent=2)\n",
+          "new": "        staged_guard = self._staged_work_guard(\n            tool,\n            args,\n            state,\n        )\n        if staged_guard:\n            return False, staged_guard\n\n        if tool == \"list_files\":\n            if (\n                state.last_tool_failure\n                and state.last_tool_failure.get(\"tool\") == \"patch_file\"\n            ):\n                path = state.last_tool_failure.get(\"path\", \"the failed file\")\n                return (\n                    False,\n                    f\"Patch recovery required for {path}. \"\n                    \"Do not rescan the repository. Read the failed file and \"\n                    \"correct the patch_file action first.\",\n                )\n\n            return True, json.dumps(self.workspace.list_files(), indent=2)\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "insert_after",
+          "anchor": "                    \"staged_work_instruction\": self._staged_work_instruction(state),\n",
+          "content": "                    \"active_staged_file\": self._active_staged_file(state),\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "            return (\n                \"PATCH RECOVERY REQUIRED. \"\n                f\"The previous patch_file for {path or 'the target file'} failed. \"\n                \"Do not call list_files and do not repeat the same patch unchanged. \"\n                \"Inspect the failed file with read_file and use the exact failure \"\n                \"details to construct a corrected patch_file action. \"\n                \"Resolve this patch failure before unrelated repository scanning.\"\n            )\n",
+          "new": "            active = self._active_staged_file(state)\n            staged_note = (\n                f\" Active staged file: {active}. Finish that staged file before \"\n                \"switching to unrelated work.\"\n                if active\n                else \"\"\n            )\n\n            return (\n                \"PATCH RECOVERY REQUIRED. \"\n                f\"The previous patch_file for {path or 'the target file'} failed. \"\n                \"Do not call list_files and do not repeat the same patch unchanged. \"\n                \"Inspect the failed file with read_file and use the exact failure \"\n                \"details to construct a corrected patch_file action. \"\n                \"Resolve this patch failure before unrelated repository scanning.\"\n                + staged_note\n            )\n",
+          "expected_matches": 1
+        }
+      ]
+    },
+    {
+      "path": "prompts/coder.txt",
+      "sha256": "60c5e0b8b182b2b6e83fc9295acd095e6052fe0aa7c478cf6f2a7f42384f87eb",
+      "edits": [
+        {
+          "op": "insert_before",
+          "anchor": "Useful tools include list_files, read_file, search_text, hash_file, begin_file, append_file, finish_file, patch_file, run_command, git_diff, and finish.\n",
+          "content": "48. If active_staged_file is non-null, that file has absolute continuation priority. Do not switch to unrelated files until it is finished.\n\n49. While a staged file exists, normally use only append_file for that file, read_file for that file, or finish_file for that file.\n\n50. Do not call list_files while a staged file is unfinished. Helix will reject repository rescans during active staged creation.\n\n51. Do not read unrelated missing or existing files while another file is staged. This includes guessed names such as calculator.py, README.md, pyproject.toml, test files, or configuration files unless the staged file has first been finished.\n\n52. After a malformed JSON response, continue the exact current task and active staged file. Do not invent a different project, filename, or previous-task context.\n\n53. When Helix reports an invalid tool schema, follow the exact schema in the diagnostic. Do not substitute aliases such as cmd for command or cwd when those fields are not present in the schema.\n\n54. For append_file, keep each content payload comfortably below the hard maximum. Prefer chunks of approximately 1500-2500 characters.\n\n55. JSON string content must escape embedded double quotes correctly. If a large append_file response becomes difficult to encode reliably, send a smaller valid chunk rather than a larger malformed action.\n\n",
+          "expected_matches": 1
+        }
+      ]
+    },
+    {
+      "path": "tests/test_helix.py",
+      "sha256": "c56df3283d793c0fc14ff4dd44b22060bc7c4d01b45874f5fa37286936db1277",
+      "edits": [
+        {
+          "op": "insert_before",
+          "anchor": "    def test_interruptible_call_returns_value(self):\n",
+          "content": "    def test_active_staged_file_is_reported(self):\n        with tempfile.TemporaryDirectory() as tmp:\n            root = Path(tmp)\n            prompt = root / \"prompt.txt\"\n            prompt.write_text(\"prompt\\n\", encoding=\"utf-8\")\n\n            config = helix.HelixConfig(\n                patchforge_cli=\"\",\n                max_steps=0,\n                command_timeout_seconds=10,\n                models={\"main\": helix.ModelSpec(\"ollama\", \"main\")},\n            )\n\n            agent = helix.HelixAgent(root, config, prompt)\n            state = helix.AgentState(task=\"test\", project_root=root)\n            state.staged_files[\"cli.py\"] = 120\n\n            self.assertEqual(\n                agent._active_staged_file(state),\n                \"cli.py\",\n            )\n\n    def test_list_files_blocked_while_file_is_staged(self):\n        with tempfile.TemporaryDirectory() as tmp:\n            root = Path(tmp)\n            prompt = root / \"prompt.txt\"\n            prompt.write_text(\"prompt\\n\", encoding=\"utf-8\")\n\n            config = helix.HelixConfig(\n                patchforge_cli=\"\",\n                max_steps=0,\n                command_timeout_seconds=10,\n                models={\"main\": helix.ModelSpec(\"ollama\", \"main\")},\n            )\n\n            agent = helix.HelixAgent(root, config, prompt)\n            state = helix.AgentState(task=\"test\", project_root=root)\n            state.staged_files[\"cli.py\"] = 120\n\n            ok, summary = agent.execute(\n                \"list_files\",\n                {},\n                state,\n            )\n\n            self.assertFalse(ok)\n            self.assertIn(\"cli.py\", summary)\n            self.assertIn(\"blocked\", summary)\n\n    def test_unrelated_read_blocked_while_file_is_staged(self):\n        with tempfile.TemporaryDirectory() as tmp:\n            root = Path(tmp)\n            prompt = root / \"prompt.txt\"\n            prompt.write_text(\"prompt\\n\", encoding=\"utf-8\")\n\n            config = helix.HelixConfig(\n                patchforge_cli=\"\",\n                max_steps=0,\n                command_timeout_seconds=10,\n                models={\"main\": helix.ModelSpec(\"ollama\", \"main\")},\n            )\n\n            agent = helix.HelixAgent(root, config, prompt)\n            state = helix.AgentState(task=\"test\", project_root=root)\n            state.staged_files[\"cli.py\"] = 120\n\n            ok, summary = agent.execute(\n                \"read_file\",\n                {\"path\": \"calculator.py\"},\n                state,\n            )\n\n            self.assertFalse(ok)\n            self.assertIn(\"Unrelated read blocked\", summary)\n            self.assertIn(\"cli.py\", summary)\n            self.assertIn(\"calculator.py\", summary)\n\n    def test_active_staged_file_can_still_be_read(self):\n        with tempfile.TemporaryDirectory() as tmp:\n            root = Path(tmp)\n            prompt = root / \"prompt.txt\"\n            prompt.write_text(\"prompt\\n\", encoding=\"utf-8\")\n\n            config = helix.HelixConfig(\n                patchforge_cli=\"\",\n                max_steps=0,\n                command_timeout_seconds=10,\n                models={\"main\": helix.ModelSpec(\"ollama\", \"main\")},\n            )\n\n            agent = helix.HelixAgent(root, config, prompt)\n            state = helix.AgentState(task=\"test\", project_root=root)\n\n            agent.workspace.create_file_chunk(\n                \"cli.py\",\n                \"print('hello')\\n\",\n                \"begin\",\n            )\n            state.staged_files[\"cli.py\"] = len(\"print('hello')\\n\")\n\n            ok, summary = agent.execute(\n                \"read_file\",\n                {\"path\": \"cli.py\"},\n                state,\n            )\n\n            self.assertTrue(ok)\n            self.assertIn(\"hello\", summary)\n\n    def test_second_begin_file_blocked_during_staged_work(self):\n        with tempfile.TemporaryDirectory() as tmp:\n            root = Path(tmp)\n            prompt = root / \"prompt.txt\"\n            prompt.write_text(\"prompt\\n\", encoding=\"utf-8\")\n\n            config = helix.HelixConfig(\n                patchforge_cli=\"\",\n                max_steps=0,\n                command_timeout_seconds=10,\n                models={\"main\": helix.ModelSpec(\"ollama\", \"main\")},\n            )\n\n            agent = helix.HelixAgent(root, config, prompt)\n            state = helix.AgentState(task=\"test\", project_root=root)\n            state.staged_files[\"cli.py\"] = 120\n\n            ok, summary = agent.execute(\n                \"begin_file\",\n                {\"path\": \"README.md\"},\n                state,\n            )\n\n            self.assertFalse(ok)\n            self.assertIn(\"cli.py\", summary)\n            self.assertIn(\"README.md\", summary)\n\n    def test_tool_schema_for_repair_returns_specific_schema(self):\n        with tempfile.TemporaryDirectory() as tmp:\n            root = Path(tmp)\n            prompt = root / \"prompt.txt\"\n            prompt.write_text(\"prompt\\n\", encoding=\"utf-8\")\n\n            config = helix.HelixConfig(\n                patchforge_cli=\"\",\n                max_steps=0,\n                command_timeout_seconds=10,\n                models={\"main\": helix.ModelSpec(\"ollama\", \"main\")},\n            )\n\n            agent = helix.HelixAgent(root, config, prompt)\n\n            schema = agent._tool_schema_for_repair(\n                {\n                    \"tool\": \"run_command\",\n                    \"args\": {\n                        \"cmd\": \"pytest -q\",\n                        \"cwd\": \".\",\n                    },\n                }\n            )\n\n            self.assertIn('\"run_command\"', schema)\n            self.assertIn('\"command\"', schema)\n            self.assertNotIn('\"cmd\"', schema)\n            self.assertNotIn('\"cwd\"', schema)\n\n",
+          "expected_matches": 1
+        }
+      ]
+    },
+    {
+      "path": "pyproject.toml",
+      "sha256": "f030e741d41f304d77ee2a89a7b8517d440f24616f6125a69479026e12c33aca",
+      "edits": [
+        {
+          "op": "replace",
+          "old": "version = \"0.3.3\"\n",
+          "new": "version = \"0.3.4\"\n",
+          "expected_matches": 1
+        }
+      ]
+    },
+    {
+      "path": "README.md",
+      "sha256": "d62697456c2dbcc5c897d434b80bfdf149789f3b3a1f3baff3cd035a4f0f2e74",
+      "edits": [
+        {
+          "op": "replace",
+          "old": "Current version: **v0.3.3**",
+          "new": "Current version: **v0.3.4**",
+          "expected_matches": 1
+        },
+        {
+          "op": "insert_after",
+          "anchor": "Python files modified through `patch_file` now receive a `python -m py_compile` verification command inside the Patch Forge workflow in addition to `git diff --check`. With rollback enabled, syntax-invalid Python edits can be restored automatically and the exact verification failure returned to Helix for another debugging iteration.\n",
+          "content": "\n\n## Staged-work continuity in v0.3.4\n\nHelix now locks autonomous creation onto the active staged file. While a file is unfinished, repository rescans, unrelated file reads, and attempts to begin another file are rejected with a targeted continuation diagnostic.\n\nThe model context explicitly includes `active_staged_file`, and the coding prompt instructs the model to continue that file using `append_file`, `read_file`, or `finish_file` instead of drifting into guessed or unrelated filenames.\n\nProtocol guidance is also stricter. Invalid tool arguments must be corrected according to Helix's actual tool schema, and append chunks should remain comfortably below the hard payload limit. This specifically targets failures where a malformed response caused the model to switch from the current todo application into unrelated files such as `calculator.py`, `README.md`, or `pyproject.toml`.\n\nA more radical raw-code/non-JSON file transport remains a possible future architecture change, but v0.3.4 first strengthens the existing protocol so its effect can be measured independently.\n",
+          "expected_matches": 1
+        }
+      ]
+    }
+  ],
+  "build": [
+    {
+      "type": "command",
+      "name": "Compile Helix",
+      "command": "python -m py_compile helix.py",
+      "expect_exit": 0,
+      "timeout_seconds": 60
+    }
+  ],
+  "verify": [
+    {
+      "type": "command",
+      "name": "Check resulting diff",
+      "command": "git diff --check",
+      "expect_exit": 0,
+      "timeout_seconds": 60
+    }
+  ],
+  "tests": [
+    {
+      "type": "command",
+      "name": "Run Helix tests",
+      "command": "python -m unittest discover -s tests -v",
+      "expect_exit": 0,
+      "timeout_seconds": 120,
+      "output_contains": "OK"
+    }
+  ],
+  "options": {
+    "rollback_on_verify_failure": true
+  }
+}

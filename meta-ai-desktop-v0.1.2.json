@@ -1,0 +1,35 @@
+{
+    "files":  [
+                  {
+                      "path":  "main.js",
+                      "sha256":  "79c703f5be3458d28c8b6f270256ad75cf7b7ce9c74edf9f7d88409168bce71d",
+                      "edits":  [
+                                    {
+                                        "expected_matches":  1,
+                                        "new":  "const { app, BrowserWindow } = require(\"electron\");\n\napp.commandLine.appendSwitch(\n  \"disable-features\",\n  \"WebAuthentication\"\n);\n\nlet mainWindow = null;",
+                                        "op":  "replace",
+                                        "old":  "const { app, BrowserWindow } = require(\"electron\");\n\nlet mainWindow = null;"
+                                    }
+                                ]
+                  },
+                  {
+                      "path":  "package.json",
+                      "sha256":  "b5aeca617c293838a4598610c4df050a1744956dab812fb494eb0fed07536a17",
+                      "edits":  [
+                                    {
+                                        "expected_matches":  1,
+                                        "new":  "\"version\": \"0.1.2\"",
+                                        "op":  "replace",
+                                        "old":  "\"version\": \"0.1.1\""
+                                    }
+                                ]
+                  }
+              ],
+    "name":  "meta-ai-desktop-v0.1.2",
+    "version":  2,
+    "verify":  [
+                   "node --check main.js",
+                   "node -e \"const fs=require(\u0027fs\u0027); const s=fs.readFileSync(\u0027main.js\u0027,\u0027utf8\u0027); if(!s.includes(\u0027disable-features\u0027) || !s.includes(\u0027WebAuthentication\u0027)) process.exit(1); console.log(\u0027WebAuthn disable flag OK\u0027);\"",
+                   "node -e \"const p=require(\u0027./package.json\u0027); if(p.version !== \u00270.1.2\u0027) process.exit(1); console.log(\u0027Version OK\u0027);\""
+               ]
+}

@@ -1,0 +1,41 @@
+{
+    "files":  [
+                  {
+                      "path":  "main.js",
+                      "sha256":  "93105a0edaaf9b701d93dda04ec9879988c1e8065ea6b97ae976c0953924a0fb",
+                      "edits":  [
+                                    {
+                                        "expected_matches":  1,
+                                        "new":  "const { app, BrowserWindow } = require(\"electron\");\n\nlet mainWindow = null;\n\nfunction disablePasskeys(session) {\n  session.on(\"select-webauthn-authenticator\", (event, details, callback) =\u003e {\n    event.preventDefault();\n\n    console.log(\n      `[WebAuthn] Blocked platform authenticator request for ${details.relyingPartyId || \"unknown site\"}`\n    );\n\n    callback();\n  });\n\n  session.on(\"select-webauthn-account\", (event, details, callback) =\u003e {\n    event.preventDefault();\n\n    console.log(\n      `[WebAuthn] Blocked passkey account request for ${details.relyingPartyId || \"unknown site\"}`\n    );\n\n    callback();\n  });\n}",
+                                        "op":  "replace",
+                                        "old":  "const { app, BrowserWindow } = require(\"electron\");\n\napp.commandLine.appendSwitch(\n  \"disable-features\",\n  \"WebAuthentication\"\n);\n\nlet mainWindow = null;"
+                                    },
+                                    {
+                                        "expected_matches":  1,
+                                        "new":  "  disablePasskeys(mainWindow.webContents.session);\n\n  mainWindow.loadURL(\"https://www.meta.ai/\");",
+                                        "op":  "replace",
+                                        "old":  "  mainWindow.loadURL(\"https://www.meta.ai/\");"
+                                    }
+                                ]
+                  },
+                  {
+                      "path":  "package.json",
+                      "sha256":  "db1afc81815b83420383914e2624c8cfbc132c4a092d315705a42eebe8c101c2",
+                      "edits":  [
+                                    {
+                                        "expected_matches":  1,
+                                        "new":  "\"version\": \"0.1.3\"",
+                                        "op":  "replace",
+                                        "old":  "\"version\": \"0.1.2\""
+                                    }
+                                ]
+                  }
+              ],
+    "name":  "meta-ai-desktop-v0.1.3",
+    "version":  2,
+    "verify":  [
+                   "node --check main.js",
+                   "node -e \"const fs=require(\u0027fs\u0027);const s=fs.readFileSync(\u0027main.js\u0027,\u0027utf8\u0027);if(!s.includes(\u0027select-webauthn-authenticator\u0027)||!s.includes(\u0027select-webauthn-account\u0027))process.exit(1);console.log(\u0027WebAuthn handlers OK\u0027);\"",
+                   "node -e \"const p=require(\u0027./package.json\u0027);if(p.version!==\u00270.1.3\u0027)process.exit(1);console.log(\u0027Version OK\u0027);\""
+               ]
+}

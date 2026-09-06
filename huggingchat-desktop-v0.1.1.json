@@ -1,0 +1,28 @@
+{
+    "files":  [
+                  {
+                      "path":  "package.json",
+                      "sha256":  "9c566056e91917d2802b8d2a112127c0eb3bd24b1ada6e54c855a3a2e53767d4",
+                      "edits":  [
+                                    {
+                                        "expected_matches":  1,
+                                        "new":  "\"version\": \"0.1.1\"",
+                                        "op":  "replace",
+                                        "old":  "\"version\": \"0.1.0\""
+                                    },
+                                    {
+                                        "expected_matches":  1,
+                                        "new":  "\"files\": [\n      \"main.js\",\n      \"package.json\",\n      \"build/icon.png\"\n    ],\n    \"win\": {\n      \"target\": \"nsis\",\n      \"icon\": \"build/icon.png\"\n    }",
+                                        "op":  "replace",
+                                        "old":  "\"files\": [\n      \"main.js\",\n      \"package.json\"\n    ],\n    \"win\": {\n      \"target\": \"nsis\"\n    }"
+                                    }
+                                ]
+                  }
+              ],
+    "name":  "huggingchat-desktop-v0.1.1",
+    "version":  2,
+    "verify":  [
+                   "node -e \"const p=require(\u0027./package.json\u0027);if(p.version!==\u00270.1.1\u0027)process.exit(1);if(p.build.win.icon!==\u0027build/icon.png\u0027)process.exit(1);console.log(\u0027Package configuration OK\u0027);\"",
+                   "powershell -NoProfile -Command \"if (!(Test-Path \u0027build/icon.png\u0027)) { Write-Error \u0027Missing build/icon.png\u0027; exit 1 }; Write-Host \u0027HuggingChat icon OK\u0027\""
+               ]
+}

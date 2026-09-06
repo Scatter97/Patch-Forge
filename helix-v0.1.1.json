@@ -1,0 +1,230 @@
+{
+  "version": 2,
+  "name": "Helix v0.1.1 - Reliable Coding Loop",
+  "preflight": [
+    {
+      "type": "command",
+      "name": "Check existing diff",
+      "command": "git diff --check",
+      "expect_exit": 0
+    },
+    {
+      "type": "sha256",
+      "name": "Check helix.py baseline",
+      "path": "helix.py",
+      "equals": "acf428b6c67c055c1e2b7f0a6168785d471e5c2961fbe6bf53f581ce2034b7ff"
+    },
+    {
+      "type": "sha256",
+      "name": "Check coder prompt baseline",
+      "path": "prompts/coder.txt",
+      "equals": "ba6a3e7ca81481a054038ffcba4c1cbc74e4159ba44f9ba0238b3c5c15f559a8"
+    },
+    {
+      "type": "sha256",
+      "name": "Check test baseline",
+      "path": "tests/test_helix.py",
+      "equals": "094f7afa9f44052de28450f1f1e27af707b71da4183fd2879a14e53271b937af"
+    },
+    {
+      "type": "sha256",
+      "name": "Check pyproject baseline",
+      "path": "pyproject.toml",
+      "equals": "f6b6149c8b2f07cd5327d9fd589894b32a7cb0e5e82eb202d4fd3200df7725fb"
+    },
+    {
+      "type": "sha256",
+      "name": "Check README baseline",
+      "path": "README.md",
+      "equals": "b8f4f2ce2ab95944d6f57f6d224d9135f6cf2c8f97ec103a12cf96564710ef44"
+    }
+  ],
+  "files": [
+    {
+      "path": "pyproject.toml",
+      "sha256": "f6b6149c8b2f07cd5327d9fd589894b32a7cb0e5e82eb202d4fd3200df7725fb",
+      "edits": [
+        {
+          "op": "replace",
+          "old": "version = \"0.1.0\"",
+          "new": "version = \"0.1.1\"",
+          "expected_matches": 1
+        }
+      ]
+    },
+    {
+      "path": "helix.py",
+      "sha256": "acf428b6c67c055c1e2b7f0a6168785d471e5c2961fbe6bf53f581ce2034b7ff",
+      "edits": [
+        {
+          "op": "replace",
+          "old": "VERSION = \"0.1.0\"",
+          "new": "VERSION = \"0.1.1\"",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "    consecutive_failures: int = 0\n    verification_passed: bool = False\n    changed_files: set[str] = field(default_factory=set)",
+          "new": "    coding_failures: int = 0\n    model_failures: int = 0\n    verification_passed: bool = False\n    changed_files: set[str] = field(default_factory=set)",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "        if ok:\n            self.consecutive_failures = 0\n        else:\n            self.consecutive_failures += 1\n",
+          "new": "",
+          "expected_matches": 1
+        },
+        {
+          "op": "insert_before",
+          "anchor": "\n\nclass CommandRunner:",
+          "content": "\n    def hash_file(self, relative: str) -> str:\n        path = self.resolve(relative)\n        if not path.is_file():\n            raise HelixError(f\"File does not exist: {relative}\")\n        return hashlib.sha256(path.read_bytes()).hexdigest()\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "insert_after",
+          "anchor": "    def available(self) -> bool:\n        return bool(self.patchforge_cli and self.patchforge_cli.exists())\n",
+          "content": "\n    def apply_edit(\n        self,\n        relative_path: str,\n        op: str,\n        attempt: int,\n        *,\n        old: str | None = None,\n        new: str | None = None,\n        anchor: str | None = None,\n        content: str | None = None,\n        expected_matches: int = 1,\n    ) -> dict[str, Any]:\n        source = (self.project_root / relative_path).resolve()\n        try:\n            source.relative_to(self.project_root.resolve())\n        except ValueError as exc:\n            raise HelixError(f\"Path escapes project root: {relative_path}\") from exc\n\n        if not source.is_file():\n            raise HelixError(\n                f\"Cannot patch missing file {relative_path}; use create_file first.\"\n            )\n\n        digest = hashlib.sha256(source.read_bytes()).hexdigest()\n\n        if op == \"replace\":\n            if not isinstance(old, str) or not isinstance(new, str):\n                raise HelixError(\"replace requires string old and new arguments.\")\n            edit = {\n                \"op\": \"replace\",\n                \"old\": old,\n                \"new\": new,\n                \"expected_matches\": expected_matches,\n            }\n        elif op in {\"insert_before\", \"insert_after\"}:\n            if not isinstance(anchor, str) or not isinstance(content, str):\n                raise HelixError(f\"{op} requires string anchor and content arguments.\")\n            edit = {\n                \"op\": op,\n                \"anchor\": anchor,\n                \"content\": content,\n                \"expected_matches\": expected_matches,\n            }\n        else:\n            raise HelixError(f\"Unsupported Patch Forge edit operation: {op}\")\n\n        patch = {\n            \"version\": 2,\n            \"name\": f\"Helix attempt {attempt:03d} - {relative_path}\",\n            \"preflight\": [\n                {\n                    \"type\": \"sha256\",\n                    \"name\": f\"Check {relative_path} baseline\",\n                    \"path\": relative_path,\n                    \"equals\": digest,\n                }\n            ],\n            \"files\": [\n                {\n                    \"path\": relative_path,\n                    \"sha256\": digest,\n                    \"edits\": [edit],\n                }\n            ],\n            \"verify\": [\n                {\n                    \"type\": \"command\",\n                    \"name\": \"Check resulting diff\",\n                    \"command\": \"git diff --check\",\n                    \"expect_exit\": 0,\n                }\n            ],\n            \"options\": {\n                \"rollback_on_verify_failure\": true\n            }\n        }\n\n        return self.apply(patch, attempt)\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "    def choose_role(self, state: AgentState) -> str:\n        failures = state.consecutive_failures\n        if failures >= 5 and self._enabled(\"remote\"):\n            return \"remote\"\n        if failures >= 3 and self._enabled(\"large\"):\n            return \"large\"\n        if state.history and state.history[-1].tool in {\"list_files\", \"read_file\", \"search_text\"}:\n            if self._enabled(\"small\"):\n                return \"small\"\n        return \"main\"",
+          "new": "    def choose_role(self, state: AgentState) -> str:\n        failures = state.coding_failures\n        if failures >= 5 and self._enabled(\"remote\"):\n            return \"remote\"\n        if failures >= 3 and self._enabled(\"large\"):\n            return \"large\"\n        return \"main\"",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "    def completion_with_fallback(self, role: str, system: str, user: str) -> tuple[str, str]:\n        order = [role]\n        for fallback in (\"large\", \"main\", \"small\"):\n            if fallback not in order and self._enabled(fallback):\n                order.append(fallback)\n        last_error: Exception | None = None\n        for candidate in order:\n            try:\n                return candidate, self.backend(candidate).complete(system, user)\n            except Exception as exc:\n                last_error = exc\n                print(f\"[MODEL] {candidate} unavailable: {exc}\")\n        raise HelixError(f\"No model backend succeeded: {last_error}\")",
+          "new": "    def action_with_fallback(\n        self,\n        role: str,\n        system: str,\n        user: str,\n    ) -> tuple[str, dict[str, Any]]:\n        order = [role]\n        for fallback in (\"main\", \"large\", \"remote\"):\n            if fallback not in order and self._enabled(fallback):\n                order.append(fallback)\n\n        errors: list[str] = []\n        for candidate in order:\n            try:\n                raw = self.backend(candidate).complete(system, user)\n                action = extract_action(raw)\n                tool = str(action.get(\"tool\", \"\"))\n                args = action.get(\"args\", {})\n                if tool not in TOOLS or not isinstance(args, dict):\n                    raise HelixError(f\"Invalid action from model: {action}\")\n                return candidate, action\n            except Exception as exc:\n                errors.append(f\"{candidate}: {exc}\")\n                print(f\"[MODEL] {candidate} unusable: {exc}\")\n\n        raise HelixError(\"No model produced a valid action: \" + \" | \".join(errors))",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "TOOLS = {\n    \"list_files\": {\"args\": {}},\n    \"read_file\": {\"args\": {\"path\": \"string\", \"start_line\": \"int?\", \"end_line\": \"int?\"}},\n    \"search_text\": {\"args\": {\"query\": \"string\"}},\n    \"create_file\": {\"args\": {\"path\": \"string\", \"content\": \"string\"}},\n    \"run_command\": {\n        \"args\": {\n            \"command\": \"string\",\n            \"timeout_seconds\": \"int?\",\n            \"verification\": \"bool?\"\n        }\n    },\n    \"patchforge_apply\": {\"args\": {\"patch\": \"Patch Forge v2 JSON object\"}},\n    \"git_diff\": {\"args\": {}},\n    \"finish\": {\"args\": {\"summary\": \"string\"}}\n}",
+          "new": "TOOLS = {\n    \"list_files\": {\"args\": {}},\n    \"read_file\": {\n        \"args\": {\n            \"path\": \"string\",\n            \"start_line\": \"int?\",\n            \"end_line\": \"int?\"\n        }\n    },\n    \"search_text\": {\"args\": {\"query\": \"string\"}},\n    \"hash_file\": {\"args\": {\"path\": \"string\"}},\n    \"create_file\": {\"args\": {\"path\": \"string\", \"content\": \"string\"}},\n    \"patch_file\": {\n        \"args\": {\n            \"path\": \"string\",\n            \"op\": \"replace | insert_before | insert_after\",\n            \"old\": \"string?\",\n            \"new\": \"string?\",\n            \"anchor\": \"string?\",\n            \"content\": \"string?\",\n            \"expected_matches\": \"int?\"\n        }\n    },\n    \"run_command\": {\n        \"args\": {\n            \"command\": \"string\",\n            \"timeout_seconds\": \"int?\",\n            \"verification\": \"bool?\"\n        }\n    },\n    \"git_diff\": {\"args\": {}},\n    \"finish\": {\"args\": {\"summary\": \"string\"}}\n}",
+          "expected_matches": 1
+        },
+        {
+          "op": "insert_before",
+          "anchor": "\n\nclass HelixAgent:",
+          "content": "\n\ndef print_banner(config: HelixConfig, project_root: Path) -> None:\n    main = config.models.get(\"main\")\n    large = config.models.get(\"large\")\n    remote = config.models.get(\"remote\")\n\n    print(\"=\" * 76)\n    print(\"  H E L I X   //   Autonomous Coding Agent\")\n    print(\"=\" * 76)\n    print(f\"  Project : {project_root}\")\n    print(\n        \"  Main    : \"\n        + (f\"{main.provider}/{main.model}\" if main else \"not configured\")\n    )\n    print(\n        \"  Large   : \"\n        + (f\"{large.provider}/{large.model}\" if large else \"not configured\")\n    )\n    print(\n        \"  Remote  : \"\n        + (\n            f\"{remote.provider}/{remote.model}\"\n            if remote and remote.enabled and remote.model\n            else \"disabled\"\n        )\n    )\n    print(\"  Forge   : deterministic source mutations enabled\")\n    print(\"=\" * 76)\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "        print(f\"Helix v{VERSION}\")\n        print(f\"Project: {self.project_root}\")\n        print(f\"Task: {task}\")",
+          "new": "        print_banner(self.config, self.project_root)\n        print(f\"  Version : {VERSION}\")\n        print(f\"  Task    : {task}\")\n        print(\"-\" * 76)",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "                    \"consecutive_failures\": state.consecutive_failures,\n                    \"verification_passed\": state.verification_passed,",
+          "new": "                    \"coding_failures\": state.coding_failures,\n                    \"model_failures\": state.model_failures,\n                    \"verification_passed\": state.verification_passed,",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "                used_role, raw = self.router.completion_with_fallback(\n                    preferred_role, self.system_prompt, user_payload\n                )\n                action = extract_action(raw)\n                tool = str(action.get(\"tool\", \"\"))\n                args = action.get(\"args\", {})\n                if tool not in TOOLS or not isinstance(args, dict):\n                    raise HelixError(f\"Invalid action: {action}\")",
+          "new": "                used_role, action = self.router.action_with_fallback(\n                    preferred_role, self.system_prompt, user_payload\n                )\n                tool = str(action[\"tool\"])\n                args = action[\"args\"]",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "            except Exception as exc:\n                state.add(preferred_role, \"agent_error\", False, str(exc))\n                print(f\"[{step:03d}] ERROR  {exc}\")",
+          "new": "            except Exception as exc:\n                state.model_failures += 1\n                state.add(preferred_role, \"agent_error\", False, str(exc))\n                print(f\"[{step:03d}] ERROR  {exc}\")",
+          "expected_matches": 1
+        },
+        {
+          "op": "insert_after",
+          "anchor": "        if tool == \"search_text\":\n            return True, json.dumps(\n                self.workspace.search_text(str(args[\"query\"])),\n                indent=2\n            )\n",
+          "content": "\n        if tool == \"hash_file\":\n            relative = str(args[\"path\"])\n            return True, self.workspace.hash_file(relative)\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "        if tool == \"run_command\":\n            result = self.runner.run(\n                str(args[\"command\"]),\n                int(args[\"timeout_seconds\"]) if args.get(\"timeout_seconds\") else None\n            )\n            if bool(args.get(\"verification\")):\n                state.verification_passed = bool(result[\"ok\"])\n            return bool(result[\"ok\"]), json.dumps(result, indent=2)\n\n        if tool == \"patchforge_apply\":\n            patch = args.get(\"patch\")\n            if not isinstance(patch, dict):\n                raise HelixError(\"patchforge_apply requires a patch object.\")\n            result = self.forge.apply(patch, state.step)\n            if result[\"ok\"]:\n                for file_spec in patch.get(\"files\", []):\n                    if isinstance(file_spec, dict) and file_spec.get(\"path\"):\n                        state.changed_files.add(str(file_spec[\"path\"]))\n                has_verification = bool(\n                    patch.get(\"build\") or patch.get(\"verify\") or patch.get(\"tests\")\n                )\n                state.verification_passed = has_verification\n            else:\n                state.verification_passed = False\n            return bool(result[\"ok\"]), json.dumps(result, indent=2)",
+          "new": "        if tool == \"patch_file\":\n            relative = str(args[\"path\"])\n            self.workspace.resolve(relative)\n            result = self.forge.apply_edit(\n                relative,\n                str(args[\"op\"]),\n                state.step,\n                old=args.get(\"old\"),\n                new=args.get(\"new\"),\n                anchor=args.get(\"anchor\"),\n                content=args.get(\"content\"),\n                expected_matches=int(args.get(\"expected_matches\", 1)),\n            )\n            if result[\"ok\"]:\n                state.changed_files.add(relative)\n                state.verification_passed = False\n            else:\n                state.coding_failures += 1\n            return bool(result[\"ok\"]), json.dumps(result, indent=2)\n\n        if tool == \"run_command\":\n            result = self.runner.run(\n                str(args[\"command\"]),\n                int(args[\"timeout_seconds\"]) if args.get(\"timeout_seconds\") else None\n            )\n            if result[\"ok\"]:\n                if bool(args.get(\"verification\")):\n                    state.verification_passed = True\n                    state.coding_failures = 0\n            else:\n                state.coding_failures += 1\n                if bool(args.get(\"verification\")):\n                    state.verification_passed = False\n            return bool(result[\"ok\"]), json.dumps(result, indent=2)",
+          "expected_matches": 1
+        }
+      ]
+    },
+    {
+      "path": "prompts/coder.txt",
+      "sha256": "ba6a3e7ca81481a054038ffcba4c1cbc74e4159ba44f9ba0238b3c5c15f559a8",
+      "edits": [
+        {
+          "op": "replace",
+          "old": "You are Helix, an autonomous coding agent.\n\nYour job is to complete the user's coding task by inspecting the project, creating new files when needed, modifying existing files safely through Patch Forge, running commands, debugging failures, and verifying the result.\n\nReturn exactly one JSON object per turn:\n{\"tool\":\"TOOL_NAME\",\"args\":{...}}\n\nRules:\n1. Never claim that a command, edit, test, build, or verification succeeded unless a tool result confirmed it.\n2. Existing files must not be overwritten with create_file. Use patchforge_apply for modifications to existing files.\n3. create_file is only for paths that do not already exist.\n4. Patch Forge patches must use version 2 and should include SHA-256 guards and expected_matches for deterministic edits.\n5. Before applying a Patch Forge patch, gather enough file context to make exact anchors unambiguous.\n6. If Patch Forge rejects a patch, reread the relevant source and generate a corrected patch. Do not weaken safety guards just to force the patch through.\n7. After code changes, run relevant builds/tests/verification. For commands that prove the task works, set \"verification\": true on run_command.\n8. A successful Patch Forge apply that includes its build/verify/tests is considered verified by the runtime.\n9. If tests or builds fail, inspect the exact output, diagnose the cause, edit again, and rerun them.\n10. Keep changes scoped to the user's task.\n11. Use git_diff before finishing when practical.\n12. Use finish only when the requested work is complete and verified.\n13. Do not commit, push, delete branches, or perform destructive repository operations.\n14. Do not write outside the supplied project root.\n15. Prefer reading/searching only relevant files instead of dumping the whole repository into context.\n\nFor a brand-new project, first inspect the directory, plan the minimal architecture internally, then create the necessary new files. After creation, run the appropriate build/tests or another concrete verification command.\n\nFor existing files, patchforge_apply takes a complete Patch Forge v2 object in args.patch. Patch Forge itself performs dry-run validation before applying.\n\nRespond with JSON only.\n",
+          "new": "You are Helix, an autonomous coding agent.\n\nComplete the user's coding task by inspecting the project, creating files, safely patching existing files, running the program/build/tests, diagnosing failures, and continuing until the task is genuinely verified.\n\nReturn exactly one JSON object per turn:\n{\"tool\":\"TOOL_NAME\",\"args\":{...}}\n\nDo not output markdown, commentary, analysis, or multiple actions.\n\nIMPORTANT EDITING MODEL\nHelix itself constructs Patch Forge v2 documents. You MUST NOT generate Patch Forge JSON.\n\nTo modify an existing file, call patch_file with one deterministic edit.\n\nReplace example:\n{\"tool\":\"patch_file\",\"args\":{\"path\":\"calculator.py\",\"op\":\"replace\",\"old\":\"    return a - b\\n\",\"new\":\"    return a + b\\n\",\"expected_matches\":1}}\n\nInsert-before example:\n{\"tool\":\"patch_file\",\"args\":{\"path\":\"app.py\",\"op\":\"insert_before\",\"anchor\":\"def main():\\n\",\"content\":\"def helper():\\n    pass\\n\\n\",\"expected_matches\":1}}\n\nHelix automatically calculates the SHA-256, creates the Patch Forge v2 patch, validates it, creates the checkpoint, applies it, and runs Patch Forge's configured diff verification.\n\nRules:\n1. Never claim an action succeeded unless its tool result says it succeeded.\n2. create_file is ONLY for files that do not already exist.\n3. Existing files MUST be changed with patch_file.\n4. Before patch_file, read enough source to obtain exact old text or an exact insertion anchor.\n5. Do not guess exact text. If Patch Forge rejects an edit, reread the file and correct the edit.\n6. Do not weaken expected_matches simply to make a patch apply.\n7. Use expected_matches=1 unless there is a deliberate and verified reason otherwise.\n8. After any source change, run an appropriate build/test/runtime verification command.\n9. Set verification=true only on a command whose success actually proves the requested implementation works.\n10. If a build or test fails, inspect the exact error, diagnose it, patch the relevant source, and rerun verification.\n11. A successful patch_file does NOT by itself mean the task is finished.\n12. Use git_diff before finish when practical.\n13. Use finish only after the requested work is complete and verification has passed.\n14. Do not modify tests merely to hide a product bug.\n15. Do not commit, push, reset, clean, delete branches, or perform destructive repository operations.\n16. Do not operate outside the supplied project root.\n17. Keep file reads focused instead of loading an entire large repository unnecessarily.\n18. For new applications, create the necessary files, then actually run/build/test the application and debug it until verification succeeds.\n\nUseful tools include list_files, read_file, search_text, hash_file, create_file, patch_file, run_command, git_diff, and finish.\n\nRespond with JSON only.\n",
+          "expected_matches": 1
+        }
+      ]
+    },
+    {
+      "path": "tests/test_helix.py",
+      "sha256": "094f7afa9f44052de28450f1f1e27af707b71da4183fd2879a14e53271b937af",
+      "edits": [
+        {
+          "op": "replace",
+          "old": "    def test_create_file_refuses_overwrite(self):\n        with tempfile.TemporaryDirectory() as tmp:\n            workspace = helix.Workspace(Path(tmp))\n            digest = workspace.create_file(\"app.py\", \"print('hello')\\n\")\n            self.assertEqual(len(digest), 64)\n            with self.assertRaises(helix.HelixError):\n                workspace.create_file(\"app.py\", \"changed\\n\")\n",
+          "new": "    def test_create_file_refuses_overwrite(self):\n        with tempfile.TemporaryDirectory() as tmp:\n            workspace = helix.Workspace(Path(tmp))\n            digest = workspace.create_file(\"app.py\", \"print('hello')\\n\")\n            self.assertEqual(len(digest), 64)\n            self.assertEqual(workspace.hash_file(\"app.py\"), digest)\n            with self.assertRaises(helix.HelixError):\n                workspace.create_file(\"app.py\", \"changed\\n\")\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "        state = helix.AgentState(task=\"x\", project_root=Path(\".\"))\n        state.consecutive_failures = 3\n        self.assertEqual(router.choose_role(state), \"large\")\n        state.consecutive_failures = 5\n        self.assertEqual(router.choose_role(state), \"remote\")",
+          "new": "        state = helix.AgentState(task=\"x\", project_root=Path(\".\"))\n        state.coding_failures = 3\n        self.assertEqual(router.choose_role(state), \"large\")\n        state.coding_failures = 5\n        self.assertEqual(router.choose_role(state), \"remote\")",
+          "expected_matches": 1
+        }
+      ]
+    },
+    {
+      "path": "README.md",
+      "sha256": "b8f4f2ce2ab95944d6f57f6d224d9135f6cf2c8f97ec103a12cf96564710ef44",
+      "edits": [
+        {
+          "op": "insert_after",
+          "anchor": "# Helix\n",
+          "content": "\nCurrent version: **v0.1.1**\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "Existing-file source mutations go through Patch Forge. Helix saves generated patches under `.helix/patches/`, asks Patch Forge to dry-run them, and only applies a patch if validation succeeds.",
+          "new": "Existing-file source mutations go through Patch Forge. Models issue a compact `patch_file` action; Helix calculates the current SHA-256 and builds the strict Patch Forge v2 document itself. Generated patches are saved under `.helix/patches/`, dry-run before application, checkpointed, and rejected if exact-match assumptions are wrong.",
+          "expected_matches": 1
+        }
+      ]
+    }
+  ],
+  "build": [
+    {
+      "type": "command",
+      "name": "Compile Helix",
+      "command": "python -m py_compile helix.py",
+      "expect_exit": 0,
+      "timeout_seconds": 30
+    }
+  ],
+  "verify": [
+    {
+      "type": "command",
+      "name": "Check resulting diff",
+      "command": "git diff --check",
+      "expect_exit": 0,
+      "timeout_seconds": 30
+    }
+  ],
+  "tests": [
+    {
+      "type": "command",
+      "name": "Run Helix tests",
+      "command": "python -m unittest discover -s tests -v",
+      "expect_exit": 0,
+      "timeout_seconds": 60
+    }
+  ],
+  "options": {
+    "rollback_on_verify_failure": true
+  }
+}

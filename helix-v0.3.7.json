@@ -1,0 +1,213 @@
+{
+  "version": 2,
+  "name": "Helix v0.3.7 post-finish planning and escalation context",
+  "preflight": [
+    {
+      "type": "sha256",
+      "name": "Check helix.py baseline",
+      "path": "helix.py",
+      "equals": "dee7a061173f1042689a4d9a9860d041521ac76efcaaa8db4ba2c4c4ae689ba8"
+    },
+    {
+      "type": "sha256",
+      "name": "Check prompts/coder.txt baseline",
+      "path": "prompts/coder.txt",
+      "equals": "6c7cd34b3c35781ddc11c275c51e44e1a93fb2f2ffc81eaef0ec64caca133048"
+    },
+    {
+      "type": "sha256",
+      "name": "Check tests/test_helix.py baseline",
+      "path": "tests/test_helix.py",
+      "equals": "9a4649d472c5925cf32d144f33fb1694b22daa8c4a0a77ae33a2395d62459535"
+    },
+    {
+      "type": "sha256",
+      "name": "Check pyproject.toml baseline",
+      "path": "pyproject.toml",
+      "equals": "f0c2b19a6a4beeb69a78343c4e9481b5e8c8bdc5f6bfb3aa235eb7470be73f2a"
+    },
+    {
+      "type": "sha256",
+      "name": "Check README.md baseline",
+      "path": "README.md",
+      "equals": "17d56cbdcf5de7526bc94619fb195e0d33d6e48cecb0fc3959133268a1511795"
+    }
+  ],
+  "files": [
+    {
+      "path": "helix.py",
+      "sha256": "dee7a061173f1042689a4d9a9860d041521ac76efcaaa8db4ba2c4c4ae689ba8",
+      "edits": [
+        {
+          "op": "replace",
+          "old": "VERSION = \"0.3.6\"\n",
+          "new": "VERSION = \"0.3.7\"\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "insert_after",
+          "anchor": "    last_completed_file: str = \"\"\n",
+          "content": "    post_finish_pending: bool = False\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "insert_after",
+          "anchor": "    last_completed_file = state.get(\"last_completed_file\", \"\")\n",
+          "content": "    post_finish_pending = bool(\n        state.get(\"post_finish_pending\")\n    )\n    remaining_requirements = str(\n        state.get(\"remaining_requirements_instruction\", \"\")\n    )\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "    if active_staged_file:\n        recommended = (\n            f\"Continue the active staged file {active_staged_file}. \"\n            \"Prefer append_file_raw for source code. \"\n            \"Do not rescan or switch files until it is finished.\"\n        )\n    elif last_tool_failure:\n",
+          "new": "    if active_staged_file:\n        recommended = (\n            f\"Continue the active staged file {active_staged_file}. \"\n            \"Prefer append_file_raw for source code. \"\n            \"Do not rescan or switch files until it is finished.\"\n        )\n    elif last_tool_failure:\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "    elif not verification_passed:\n        recommended = (\n            \"Continue the original task from the current repository state. \"\n            \"Determine which requirements remain, avoid repeating completed work, \"\n            \"and reach the requested final verification.\"\n        )\n",
+          "new": "    elif post_finish_pending:\n        recommended = (\n            remaining_requirements\n            or (\n                \"The previous file was successfully completed. \"\n                \"Advance to the next missing requirement from the original task. \"\n                \"Do not rescan or reread completed work without a diagnostic reason.\"\n            )\n        )\n    elif not verification_passed:\n        recommended = (\n            \"Continue the original task from the current repository state. \"\n            \"Determine which requirements remain, avoid repeating completed work, \"\n            \"and reach the requested final verification.\"\n        )\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "insert_after",
+          "anchor": "        \"last_completed_file\": last_completed_file,\n",
+          "content": "        \"post_finish_pending\": post_finish_pending,\n        \"remaining_requirements\": remaining_requirements,\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "insert_before",
+          "anchor": "    def _post_finish_instruction(self, state: AgentState) -> str:\n",
+          "content": "    def _remaining_requirements_instruction(\n        self,\n        state: AgentState,\n    ) -> str:\n        task = state.task.lower()\n        changed = {\n            path.lower()\n            for path in state.changed_files\n        }\n\n        remaining: list[str] = []\n\n        test_requested = any(\n            token in task\n            for token in (\n                \"test\",\n                \"tests\",\n                \"pytest\",\n                \"unittest\",\n            )\n        )\n\n        has_test_file = any(\n            (\n                Path(path).name.startswith(\"test_\")\n                or Path(path).name.endswith(\"_test.py\")\n                or \"/tests/\" in path.replace(\"\\\\\", \"/\")\n                or path.replace(\"\\\\\", \"/\").startswith(\"tests/\")\n            )\n            for path in changed\n        )\n\n        if test_requested and not has_test_file:\n            remaining.append(\n                \"Automated tests are requested by the original task, \"\n                \"but no test-like file has been completed yet.\"\n            )\n\n        if not state.verification_passed:\n            remaining.append(\n                \"Final verification has not passed yet.\"\n            )\n\n        if state.last_completed_file:\n            remaining.append(\n                f\"{state.last_completed_file} was just completed. \"\n                \"Treat it as completed work unless a real diagnostic \"\n                \"requires changing it.\"\n            )\n\n        if not remaining:\n            remaining.append(\n                \"Review the original task for any remaining requirement \"\n                \"and proceed directly to completion.\"\n            )\n\n        return (\n            \"POST-FINISH CONTINUATION REQUIRED. \"\n            + \" \".join(remaining)\n            + \" Do not call list_files merely to rediscover repository state. \"\n            \"Choose the next concrete implementation, testing, debugging, \"\n            \"or verification action.\"\n        )\n\n    def _post_finish_guard(\n        self,\n        tool: str,\n        args: dict[str, Any],\n        state: AgentState,\n    ) -> str | None:\n        if not state.post_finish_pending:\n            return None\n\n        completed = state.last_completed_file\n        guidance = self._remaining_requirements_instruction(state)\n\n        if tool == \"list_files\":\n            return (\n                f\"Post-finish repository scan blocked. {completed or 'The previous file'} \"\n                f\"was already completed. {guidance}\"\n            )\n\n        if tool == \"read_file\" and completed:\n            target = str(args.get(\"path\", \"\"))\n\n            try:\n                target = self.workspace.normalize_relative(target)\n            except Exception:\n                pass\n\n            if target == completed:\n                return (\n                    f\"Immediate reread of completed file {completed} blocked. \"\n                    \"There is no diagnostic failure requiring that reread. \"\n                    + guidance\n                )\n\n        return None\n\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "    def _post_finish_instruction(self, state: AgentState) -> str:\n        if not state.last_completed_file:\n            return \"\"\n\n        return (\n            f\"{state.last_completed_file} was successfully created and is no \"\n            \"longer staged. Do not immediately reread or rescan that same file \"\n            \"without a specific diagnostic reason. Continue from the original \"\n            \"task requirements: identify the next missing file, test, command, \"\n            \"or verification step. Avoid repeating completed work.\"\n        )\n",
+          "new": "    def _post_finish_instruction(self, state: AgentState) -> str:\n        if not state.last_completed_file:\n            return \"\"\n\n        return self._remaining_requirements_instruction(state)\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "insert_after",
+          "anchor": "                    \"last_completed_file\": state.last_completed_file,\n",
+          "content": "                    \"post_finish_pending\": state.post_finish_pending,\n                    \"remaining_requirements_instruction\": self._remaining_requirements_instruction(state),\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "insert_after",
+          "anchor": "        if staged_guard:\n            return False, staged_guard\n\n",
+          "content": "        post_finish_guard = self._post_finish_guard(\n            tool,\n            args,\n            state,\n        )\n        if post_finish_guard:\n            return False, post_finish_guard\n\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "insert_before",
+          "anchor": "            return True, f\"Started staged file: {relative}\"\n",
+          "content": "            state.post_finish_pending = False\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "insert_after",
+          "anchor": "                state.last_completed_file = relative\n",
+          "content": "                state.post_finish_pending = True\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "insert_after",
+          "anchor": "                state.last_tool_failure = None\n",
+          "content": "                state.post_finish_pending = False\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "insert_after",
+          "anchor": "            command = str(args[\"command\"])\n            verification = bool(args.get(\"verification\"))\n",
+          "content": "\n            state.post_finish_pending = False\n",
+          "expected_matches": 1
+        }
+      ]
+    },
+    {
+      "path": "prompts/coder.txt",
+      "sha256": "6c7cd34b3c35781ddc11c275c51e44e1a93fb2f2ffc81eaef0ec64caca133048",
+      "edits": [
+        {
+          "op": "insert_before",
+          "anchor": "Useful tools include ",
+          "content": "71. After finish_file succeeds, post_finish_pending may become true. Do not call list_files as the next action.\n\n72. When post_finish_pending is true, follow remaining_requirements_instruction as the highest-priority planning guidance unless an active tool failure requires recovery.\n\n73. Do not immediately reread last_completed_file after successful creation. It was already staged, reviewed, and written. Reread it only when a concrete build, test, syntax, or runtime failure points back to that file.\n\n74. After completing an application source file, inspect the ORIGINAL TASK requirements rather than the repository listing. If tests were requested and no tests have been completed, create the test file next.\n\n75. If final verification has not passed, do not finish the task. Advance toward the requested build/test/verification command.\n\n76. A blocked post-finish list_files/read_file action is a planning error, not a reason to retry the same action.\n\n77. During MAIN-to-LARGE escalation, remaining_requirements in the ESCALATION HANDOFF describes known unfinished work. LARGE should use it to choose the next concrete action.\n\n78. LARGE must not restart completed files merely because MAIN stalled after finish_file.\n\n",
+          "expected_matches": 1
+        }
+      ]
+    },
+    {
+      "path": "tests/test_helix.py",
+      "sha256": "9a4649d472c5925cf32d144f33fb1694b22daa8c4a0a77ae33a2395d62459535",
+      "edits": [
+        {
+          "op": "insert_before",
+          "anchor": "    def test_interruptible_call_returns_value(self):\n",
+          "content": "    def test_remaining_requirements_detects_missing_tests(self):\n        with tempfile.TemporaryDirectory() as tmp:\n            root = Path(tmp)\n            prompt = root / \"prompt.txt\"\n            prompt.write_text(\"prompt\\n\", encoding=\"utf-8\")\n\n            config = helix.HelixConfig(\n                patchforge_cli=\"\",\n                max_steps=0,\n                command_timeout_seconds=10,\n                models={\"main\": helix.ModelSpec(\"ollama\", \"main\")},\n            )\n\n            agent = helix.HelixAgent(root, config, prompt)\n\n            state = helix.AgentState(\n                task=\"Build an app and add automated tests using pytest.\",\n                project_root=root,\n            )\n            state.changed_files.add(\"main.py\")\n            state.last_completed_file = \"main.py\"\n            state.post_finish_pending = True\n\n            guidance = agent._remaining_requirements_instruction(state)\n\n            self.assertIn(\"Automated tests\", guidance)\n            self.assertIn(\"Final verification\", guidance)\n            self.assertIn(\"main.py\", guidance)\n\n    def test_post_finish_blocks_repository_rescan(self):\n        with tempfile.TemporaryDirectory() as tmp:\n            root = Path(tmp)\n            prompt = root / \"prompt.txt\"\n            prompt.write_text(\"prompt\\n\", encoding=\"utf-8\")\n\n            config = helix.HelixConfig(\n                patchforge_cli=\"\",\n                max_steps=0,\n                command_timeout_seconds=10,\n                models={\"main\": helix.ModelSpec(\"ollama\", \"main\")},\n            )\n\n            agent = helix.HelixAgent(root, config, prompt)\n\n            state = helix.AgentState(\n                task=\"Build app and tests\",\n                project_root=root,\n            )\n            state.changed_files.add(\"main.py\")\n            state.last_completed_file = \"main.py\"\n            state.post_finish_pending = True\n\n            ok, summary = agent.execute(\n                \"list_files\",\n                {},\n                state,\n            )\n\n            self.assertFalse(ok)\n            self.assertIn(\"Post-finish\", summary)\n            self.assertIn(\"main.py\", summary)\n\n    def test_post_finish_blocks_immediate_completed_file_reread(self):\n        with tempfile.TemporaryDirectory() as tmp:\n            root = Path(tmp)\n            prompt = root / \"prompt.txt\"\n            prompt.write_text(\"prompt\\n\", encoding=\"utf-8\")\n            (root / \"main.py\").write_text(\n                \"print('ok')\\n\",\n                encoding=\"utf-8\",\n            )\n\n            config = helix.HelixConfig(\n                patchforge_cli=\"\",\n                max_steps=0,\n                command_timeout_seconds=10,\n                models={\"main\": helix.ModelSpec(\"ollama\", \"main\")},\n            )\n\n            agent = helix.HelixAgent(root, config, prompt)\n\n            state = helix.AgentState(\n                task=\"Build app and tests\",\n                project_root=root,\n            )\n            state.changed_files.add(\"main.py\")\n            state.last_completed_file = \"main.py\"\n            state.post_finish_pending = True\n\n            ok, summary = agent.execute(\n                \"read_file\",\n                {\"path\": \"main.py\"},\n                state,\n            )\n\n            self.assertFalse(ok)\n            self.assertIn(\"Immediate reread\", summary)\n            self.assertIn(\"main.py\", summary)\n\n    def test_beginning_next_file_clears_post_finish_pending(self):\n        with tempfile.TemporaryDirectory() as tmp:\n            root = Path(tmp)\n            prompt = root / \"prompt.txt\"\n            prompt.write_text(\"prompt\\n\", encoding=\"utf-8\")\n\n            config = helix.HelixConfig(\n                patchforge_cli=\"\",\n                max_steps=0,\n                command_timeout_seconds=10,\n                models={\"main\": helix.ModelSpec(\"ollama\", \"main\")},\n            )\n\n            agent = helix.HelixAgent(root, config, prompt)\n\n            state = helix.AgentState(\n                task=\"Build app and tests\",\n                project_root=root,\n            )\n            state.last_completed_file = \"main.py\"\n            state.post_finish_pending = True\n\n            ok, _ = agent.execute(\n                \"begin_file\",\n                {\"path\": \"test_main.py\"},\n                state,\n            )\n\n            self.assertTrue(ok)\n            self.assertFalse(state.post_finish_pending)\n            self.assertIn(\"test_main.py\", state.staged_files)\n\n    def test_escalation_handoff_includes_post_finish_remaining_work(self):\n        payload = json.dumps(\n            {\n                \"task\": \"Build a todo app and tests\",\n                \"changed_files\": [\"main.py\"],\n                \"staged_files\": [],\n                \"active_staged_file\": None,\n                \"last_completed_file\": \"main.py\",\n                \"post_finish_pending\": True,\n                \"remaining_requirements_instruction\": (\n                    \"Automated tests are still required. \"\n                    \"Final verification has not passed.\"\n                ),\n                \"last_tool_failure\": None,\n                \"verification_passed\": False,\n                \"recent_history\": [],\n            }\n        )\n\n        handoff = helix.build_escalation_handoff(\n            original_user=payload,\n            previous_errors=[\"MAIN stalled after finishing main.py\"],\n        )\n\n        self.assertIn(\"post_finish_pending\", handoff)\n        self.assertIn(\"Automated tests are still required\", handoff)\n        self.assertIn(\"main.py\", handoff)\n        self.assertIn(\"MAIN stalled\", handoff)\n\n",
+          "expected_matches": 1
+        }
+      ]
+    },
+    {
+      "path": "pyproject.toml",
+      "sha256": "f0c2b19a6a4beeb69a78343c4e9481b5e8c8bdc5f6bfb3aa235eb7470be73f2a",
+      "edits": [
+        {
+          "op": "replace",
+          "old": "version = \"0.3.6\"\n",
+          "new": "version = \"0.3.7\"\n",
+          "expected_matches": 1
+        }
+      ]
+    },
+    {
+      "path": "README.md",
+      "sha256": "17d56cbdcf5de7526bc94619fb195e0d33d6e48cecb0fc3959133268a1511795",
+      "edits": [
+        {
+          "op": "replace",
+          "old": "Current version: **v0.3.6**",
+          "new": "Current version: **v0.3.7**",
+          "expected_matches": 1
+        },
+        {
+          "op": "insert_after",
+          "anchor": "The two-phase design also keeps the existing MAIN-to-LARGE escalation handoff. Whichever model owns the current step receives the shared Helix task state, and raw source generation receives focused staged-file context for the exact target file.\n",
+          "content": "\n\n## Post-finish planning in v0.3.7\n\nHelix now treats successful `finish_file` as a planning transition rather than returning immediately to unrestricted repository exploration. `post_finish_pending` records that a file was just completed and that the next action should advance the original task.\n\nWhile this state is active, redundant `list_files` calls and immediate rereads of `last_completed_file` are rejected. Beginning a new required file, patching code, or running an implementation/verification command clears the transition state.\n\nHelix also derives a lightweight `remaining_requirements_instruction` from observable task state. For example, if the original task explicitly requested automated tests but no test-like file has been completed, the model is told that tests remain. Missing final verification is also surfaced.\n\nThe MAIN-to-LARGE escalation handoff now carries `post_finish_pending` and the remaining-requirements guidance so LARGE can continue from the next unfinished requirement instead of restarting completed work or repeating repository scans.\n",
+          "expected_matches": 1
+        }
+      ]
+    }
+  ],
+  "build": [
+    {
+      "type": "command",
+      "name": "Compile Helix",
+      "command": "python -m py_compile helix.py",
+      "expect_exit": 0,
+      "timeout_seconds": 60
+    }
+  ],
+  "verify": [
+    {
+      "type": "command",
+      "name": "Check resulting diff",
+      "command": "git diff --check",
+      "expect_exit": 0,
+      "timeout_seconds": 60
+    }
+  ],
+  "tests": [
+    {
+      "type": "command",
+      "name": "Run Helix tests",
+      "command": "python -m unittest discover -s tests -v",
+      "expect_exit": 0,
+      "timeout_seconds": 120,
+      "output_contains": "OK"
+    }
+  ],
+  "options": {
+    "rollback_on_verify_failure": true
+  }
+}

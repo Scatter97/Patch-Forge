@@ -1,0 +1,32 @@
+{
+    "files":  [
+                  {
+                      "path":  "package.json",
+                      "content":  "{\n  \"name\": \"mistral-vibe-desktop\",\n  \"version\": \"0.1.0\",\n  \"description\": \"Minimal Windows desktop wrapper for Mistral Vibe\",\n  \"main\": \"main.js\",\n  \"author\": \"Josh\",\n  \"license\": \"MIT\",\n  \"scripts\": {\n    \"start\": \"electron .\",\n    \"dist\": \"electron-builder --win\"\n  },\n  \"devDependencies\": {\n    \"electron\": \"latest\",\n    \"electron-builder\": \"latest\"\n  },\n  \"build\": {\n    \"appId\": \"com.josh.mistralvibedesktop\",\n    \"productName\": \"Mistral Vibe Desktop\",\n    \"directories\": {\n      \"output\": \"dist\"\n    },\n    \"files\": [\n      \"main.js\",\n      \"package.json\",\n      \"build/icon.svg\"\n    ],\n    \"win\": {\n      \"target\": \"nsis\",\n      \"icon\": \"build/icon.svg\"\n    },\n    \"nsis\": {\n      \"oneClick\": false,\n      \"allowToChangeInstallationDirectory\": true,\n      \"createDesktopShortcut\": true,\n      \"createStartMenuShortcut\": true\n    }\n  }\n}",
+                      "action":  "create"
+                  },
+                  {
+                      "path":  "main.js",
+                      "content":  "const { app, BrowserWindow, shell } = require(\"electron\");\n\nlet mainWindow = null;\n\nfunction createWindow() {\n  mainWindow = new BrowserWindow({\n    width: 1280,\n    height: 850,\n    minWidth: 800,\n    minHeight: 600,\n    title: \"Mistral Vibe\",\n    autoHideMenuBar: true,\n    webPreferences: {\n      nodeIntegration: false,\n      contextIsolation: true,\n      sandbox: true\n    }\n  });\n\n  mainWindow.webContents.setWindowOpenHandler(({ url }) =\u003e {\n    try {\n      const parsed = new URL(url);\n\n      const allowedHosts = [\n        \"chat.mistral.ai\",\n        \"auth.mistral.ai\",\n        \"mistral.ai\"\n      ];\n\n      if (\n        allowedHosts.includes(parsed.hostname) ||\n        parsed.hostname.endsWith(\".mistral.ai\")\n      ) {\n        return {\n          action: \"allow\",\n          overrideBrowserWindowOptions: {\n            width: 520,\n            height: 720,\n            autoHideMenuBar: true,\n            webPreferences: {\n              nodeIntegration: false,\n              contextIsolation: true,\n              sandbox: true\n            }\n          }\n        };\n      }\n\n      shell.openExternal(url);\n      return { action: \"deny\" };\n    } catch {\n      return { action: \"deny\" };\n    }\n  });\n\n  mainWindow.loadURL(\"https://chat.mistral.ai/\");\n\n  mainWindow.on(\"closed\", () =\u003e {\n    mainWindow = null;\n  });\n}\n\napp.whenReady().then(() =\u003e {\n  createWindow();\n\n  app.on(\"activate\", () =\u003e {\n    if (BrowserWindow.getAllWindows().length === 0) {\n      createWindow();\n    }\n  });\n});\n\napp.on(\"window-all-closed\", () =\u003e {\n  if (process.platform !== \"darwin\") {\n    app.quit();\n  }\n});",
+                      "action":  "create"
+                  },
+                  {
+                      "path":  "build/icon.svg",
+                      "content":  "\u003csvg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 1024 1024\"\u003e\n  \u003cdefs\u003e\n    \u003clinearGradient id=\"bg\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"1\"\u003e\n      \u003cstop offset=\"0%\" stop-color=\"#ff8a00\"/\u003e\n      \u003cstop offset=\"50%\" stop-color=\"#ff5a1f\"/\u003e\n      \u003cstop offset=\"100%\" stop-color=\"#d62828\"/\u003e\n    \u003c/linearGradient\u003e\n  \u003c/defs\u003e\n\n  \u003crect\n    x=\"64\"\n    y=\"64\"\n    width=\"896\"\n    height=\"896\"\n    rx=\"220\"\n    fill=\"url(#bg)\"\n  /\u003e\n\n  \u003cpath\n    d=\"M264 720V304h112l136 174 136-174h112v416H648V475L512 645 376 475v245H264Z\"\n    fill=\"#ffffff\"\n  /\u003e\n\u003c/svg\u003e",
+                      "action":  "create"
+                  },
+                  {
+                      "path":  ".gitignore",
+                      "content":  "node_modules/\ndist/\n*.log",
+                      "action":  "create"
+                  }
+              ],
+    "name":  "mistral-vibe-desktop-v0.1.0",
+    "version":  2,
+    "verify":  [
+                   "node --check main.js",
+                   "node -e \"const p=require(\u0027./package.json\u0027); if(p.version!==\u00270.1.0\u0027) process.exit(1); console.log(\u0027Version OK\u0027);\"",
+                   "node -e \"const p=require(\u0027./package.json\u0027); if(p.build.win.icon!==\u0027build/icon.svg\u0027) process.exit(1); console.log(\u0027Icon configuration OK\u0027);\"",
+                   "powershell -NoProfile -Command \"if (!(Test-Path \u0027build/icon.svg\u0027)) { exit 1 }; Write-Host \u0027Icon OK\u0027\""
+               ]
+}

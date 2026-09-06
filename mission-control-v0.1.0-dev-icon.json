@@ -1,0 +1,11 @@
+{
+    "version":  2,
+    "name":  "Mission Control v0.1.0 - Development Icon",
+    "files":  [
+                  {
+                      "path":  "scripts/generate_dev_icon.py",
+                      "action":  "create",
+                      "content":  "from pathlib import Path\nimport struct\n\nSIZE = 32\n\nrepo_root = Path(__file__).resolve().parents[1]\nicon_dir = repo_root / \"src-tauri\" / \"icons\"\nicon_path = icon_dir / \"icon.ico\"\n\nicon_dir.mkdir(parents=True, exist_ok=True)\n\n# Colors are BGRA because Windows DIB icon pixels use B,G,R,A order.\nBACKGROUND = (18, 14, 9, 255)\nACCENT = (255, 141, 109, 255)\nWHITE = (245, 245, 245, 255)\n\npixels = [[BACKGROUND for _ in range(SIZE)] for _ in range(SIZE)]\n\n# Blue inset square.\nfor y in range(5, SIZE - 5):\n    for x in range(5, SIZE - 5):\n        pixels[y][x] = ACCENT\n\n# Simple dark \"M\" mark.\nfor y in range(9, 24):\n    left = 9\n    right = 22\n\n    pixels[y][left] = BACKGROUND\n    pixels[y][left + 1] = BACKGROUND\n    pixels[y][right] = BACKGROUND\n    pixels[y][right - 1] = BACKGROUND\n\nfor i in range(7):\n    y = 10 + i\n    pixels[y][11 + i // 2] = BACKGROUND\n    pixels[y][12 + i // 2] = BACKGROUND\n    pixels[y][20 - i // 2] = BACKGROUND\n    pixels[y][19 - i // 2] = BACKGROUND\n\n# Windows icon DIBs are stored bottom-up.\nxor_bitmap = bytearray()\n\nfor row in reversed(pixels):\n    for b, g, r, a in row:\n        xor_bitmap.extend((b, g, r, a))\n\n# 1-bit transparency mask.\nmask_row_bytes = ((SIZE + 31) // 32) * 4\nand_mask = bytes(mask_row_bytes * SIZE)\n\nbitmap_info_header = struct.pack(\n    \"\u003cIIIHHIIIIII\",\n    40,             # header size\n    SIZE,\n    SIZE * 2,       # XOR + AND mask height\n    1,              # planes\n    32,             # bits per pixel\n    0,              # BI_RGB\n    len(xor_bitmap),\n    0,\n    0,\n    0,\n    0,\n)\n\nimage_data = bitmap_info_header + xor_bitmap + and_mask\n\nicon_dir_header = struct.pack(\n    \"\u003cHHH\",\n    0,  # reserved\n    1,  # icon\n    1,  # image count\n)\n\nicon_entry = struct.pack(\n    \"\u003cBBBBHHII\",\n    SIZE,\n    SIZE,\n    0,\n    0,\n    1,\n    32,\n    len(image_data),\n    6 + 16,\n)\n\nicon_path.write_bytes(icon_dir_header + icon_entry + image_data)\n\nprint(f\"Created {icon_path}\")"
+                  }
+              ]
+}

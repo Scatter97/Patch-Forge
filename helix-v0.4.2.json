@@ -1,0 +1,237 @@
+{
+  "version": 2,
+  "name": "Helix v0.4.2 staged-work lock, model circuit breaker, and benchmark mode",
+  "preflight": [
+    {
+      "type": "sha256",
+      "name": "Check helix.py",
+      "path": "helix.py",
+      "equals": "acaf87f4c68cdd169fee6ee6fcce81904efa14f87c47c6ecc9e77fee7466278f"
+    },
+    {
+      "type": "sha256",
+      "name": "Check prompts/coder.txt",
+      "path": "prompts/coder.txt",
+      "equals": "33f2cbb3effde0632a8633be691a5d6e966fc70d4a8e42c1d0323b7b8ba57bd8"
+    },
+    {
+      "type": "sha256",
+      "name": "Check tests/test_helix.py",
+      "path": "tests/test_helix.py",
+      "equals": "c734b074056d4ce02b79e8fc199e0b2fed49921d149b45d43ac06480ba4f8062"
+    },
+    {
+      "type": "sha256",
+      "name": "Check pyproject.toml",
+      "path": "pyproject.toml",
+      "equals": "b1bbccc5fdd2fa2761b8ec654b5082875a4bdc1b56352e158088d83b8616e657"
+    },
+    {
+      "type": "sha256",
+      "name": "Check README.md",
+      "path": "README.md",
+      "equals": "9c483b88c0af1c27bc6f085d50c7ddc3044397a08f820f0a38de1c6ca164c5c7"
+    }
+  ],
+  "files": [
+    {
+      "path": "helix.py",
+      "sha256": "acaf87f4c68cdd169fee6ee6fcce81904efa14f87c47c6ecc9e77fee7466278f",
+      "edits": [
+        {
+          "op": "replace",
+          "old": "VERSION = \"0.4.1\"\n",
+          "new": "VERSION = \"0.4.2\"\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "insert_after",
+          "anchor": "import argparse\n",
+          "content": "import contextlib\nimport csv\nimport io\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "insert_after",
+          "anchor": "import time\n",
+          "content": "import tempfile\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "insert_after",
+          "anchor": "    raw_generation_attempts: int = 2\n",
+          "content": "    model_circuit_breaker_failures: int = 3\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "insert_before",
+          "anchor": "        )\n\n\n@dataclass\nclass StepRecord:",
+          "content": "        # Number of consecutive unusable model responses before\n        # that role is disabled for the remainder of the current task.\n        self.model_circuit_breaker_failures = max(\n            1,\n            self.model_circuit_breaker_failures,\n        )\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "class ModelRouter:\n    def __init__(self, config: HelixConfig):\n        self.config = config\n        self.last_model_failures = 0\n        self.event_sink = None\n",
+          "new": "class ModelRouter:\n    def __init__(self, config: HelixConfig):\n        self.config = config\n        self.last_model_failures = 0\n        self.event_sink = None\n        self.task_model_failures: dict[str, int] = {}\n        self.task_unhealthy_models: set[str] = set()\n\n    def reset_task_health(self) -> None:\n        self.task_model_failures.clear()\n        self.task_unhealthy_models.clear()\n\n    def _record_model_failure(self, role: str) -> None:\n        count = self.task_model_failures.get(role, 0) + 1\n        self.task_model_failures[role] = count\n\n        if count >= self.config.model_circuit_breaker_failures:\n            if role not in self.task_unhealthy_models:\n                self.task_unhealthy_models.add(role)\n                self._model_log(\n                    role,\n                    (\n                        \"disabled for the current task after \"\n                        f\"{count} consecutive unusable response(s)\"\n                    ),\n                    kind=\"model_circuit_breaker\",\n                )\n\n    def _record_model_success(self, role: str) -> None:\n        self.task_model_failures[role] = 0\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "    def _enabled(self, role: str) -> bool:\n        spec = self.config.models.get(role)\n        return bool(spec and spec.enabled and spec.model)\n",
+          "new": "    def _enabled(self, role: str) -> bool:\n        if role in self.task_unhealthy_models:\n            return False\n        spec = self.config.models.get(role)\n        return bool(spec and spec.enabled and spec.model)\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "insert_after",
+          "anchor": "                except Exception as exc:\n                    self.last_model_failures += 1\n                    final_error = f\"Model request failed: {exc}\"\n",
+          "content": "                    self._record_model_failure(candidate)\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "insert_after",
+          "anchor": "                except Exception as exc:\n                    self.last_model_failures += 1\n                    final_error = str(exc)\n",
+          "content": "                    self._record_model_failure(candidate)\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "insert_before",
+          "anchor": "                    return candidate, action\n",
+          "content": "                    self._record_model_success(candidate)\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "insert_before",
+          "anchor": "    def _staged_work_guard(\n",
+          "content": "    def _staged_action_lock_error(\n        self,\n        tool: str,\n        args: dict[str, Any],\n        state: AgentState,\n    ) -> str | None:\n        active = self._active_staged_file(state)\n        if not active:\n            return None\n\n        characters = state.staged_files.get(active, 0)\n\n        if characters == 0:\n            allowed = {\"append_file_raw\", \"append_file\"}\n        else:\n            allowed = {\n                \"append_file_raw\",\n                \"append_file\",\n                \"read_file\",\n                \"finish_file\",\n            }\n\n        if tool not in allowed:\n            choices = \", \".join(sorted(allowed))\n            return (\n                f\"STAGED WORK LOCK: {active} is unfinished \"\n                f\"({characters} characters staged). \"\n                f'Tool \"{tool}\" is unavailable right now. '\n                f\"Allowed tools: {choices}.\"\n            )\n\n        target = str(args.get(\"path\", \"\"))\n        if not target:\n            return (\n                f\"STAGED WORK LOCK: tool {tool} must target \"\n                f'the active staged file \"{active}\".'\n            )\n\n        try:\n            normalized = self.workspace.normalize_relative(target)\n        except Exception:\n            normalized = target\n\n        if normalized != active:\n            return (\n                f\"STAGED WORK LOCK: {active} is the only file that may be \"\n                f\"worked on right now. The proposed action targeted \"\n                f'\"{target}\". Continue {active} instead.'\n            )\n\n        return None\n\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "insert_after",
+          "anchor": "                    \"active_staged_file\": self._active_staged_file(state),\n",
+          "content": "                    \"staged_action_lock\": (\n                        {\n                            \"active\": True,\n                            \"path\": self._active_staged_file(state),\n                            \"characters\": state.staged_files.get(\n                                self._active_staged_file(state) or \"\",\n                                0,\n                            ),\n                            \"allowed_tools\": (\n                                [\"append_file_raw\", \"append_file\"]\n                                if state.staged_files.get(\n                                    self._active_staged_file(state) or \"\",\n                                    0,\n                                ) == 0\n                                else [\n                                    \"append_file_raw\",\n                                    \"append_file\",\n                                    \"read_file\",\n                                    \"finish_file\",\n                                ]\n                            ),\n                            \"instruction\": (\n                                \"You MUST continue the active staged file. \"\n                                \"Do not scan, patch another file, run commands, \"\n                                \"or begin another file.\"\n                            ),\n                        }\n                        if self._active_staged_file(state)\n                        else {\"active\": False}\n                    ),\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "insert_after",
+          "anchor": "    def run(self, task: str) -> int:\n        state = AgentState(task=task, project_root=self.project_root)\n",
+          "content": "        self.router.reset_task_health()\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "            try:\n                used_role, action = self.router.action_with_fallback(\n                    preferred_role,\n                    self.system_prompt,\n                    user_payload,\n                )\n\n                state.model_failures += self.router.last_model_failures\n\n                tool = str(action[\"tool\"])\n                args = action[\"args\"]\n",
+          "new": "            try:\n                staged_repair = 0\n                accumulated_model_failures = 0\n                request_payload = user_payload\n\n                while True:\n                    used_role, action = self.router.action_with_fallback(\n                        preferred_role,\n                        self.system_prompt,\n                        request_payload,\n                    )\n                    accumulated_model_failures += (\n                        self.router.last_model_failures\n                    )\n\n                    tool = str(action[\"tool\"])\n                    args = action[\"args\"]\n\n                    lock_error = self._staged_action_lock_error(\n                        tool,\n                        args,\n                        state,\n                    )\n\n                    if not lock_error:\n                        break\n\n                    if staged_repair >= self.config.model_repair_attempts:\n                        raise HelixError(\n                            \"Model repeatedly violated the staged-work lock. \"\n                            + lock_error\n                        )\n\n                    staged_repair += 1\n\n                    print(\n                        f\"[MODEL] {used_role} staged-action repair \"\n                        f\"{staged_repair}/\"\n                        f\"{self.config.model_repair_attempts}: \"\n                        f\"{lock_error}\"\n                    )\n\n                    payload = json.loads(user_payload)\n                    payload[\"staged_action_repair\"] = {\n                        \"attempt\": staged_repair,\n                        \"error\": lock_error,\n                        \"instruction\": (\n                            \"Correct ONLY the next action. \"\n                            \"The active staged file must be continued. \"\n                            \"Do not repeat the rejected action.\"\n                        ),\n                    }\n                    request_payload = json.dumps(\n                        payload,\n                        indent=2,\n                    )\n\n                state.model_failures += accumulated_model_failures\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "insert_before",
+          "anchor": "def build_parser() -> argparse.ArgumentParser:\n",
+          "content": "def load_benchmark_spec(path: Path) -> dict[str, Any]:\n    data = json.loads(path.read_text(encoding=\"utf-8\"))\n\n    if not isinstance(data, dict):\n        raise HelixError(\"Benchmark file must contain a JSON object.\")\n\n    task = data.get(\"task\")\n    if not isinstance(task, str) or not task.strip():\n        raise HelixError('Benchmark file requires a non-empty \"task\".')\n\n    setup_files = data.get(\"setup_files\", {})\n    if not isinstance(setup_files, dict):\n        raise HelixError('\"setup_files\" must be a JSON object.')\n\n    return data\n\n\ndef run_model_benchmark(args: argparse.Namespace) -> int:\n    spec_path = Path(args.benchmark).resolve()\n    spec = load_benchmark_spec(spec_path)\n\n    runs = max(1, int(args.runs))\n    model_name = str(args.benchmark_model or \"\").strip()\n\n    if not model_name:\n        raise HelixError(\n            \"--benchmark-model is required when --benchmark is used.\"\n        )\n\n    base_project = Path(args.project).resolve()\n    results_dir = (\n        Path(args.benchmark_output).resolve()\n        if args.benchmark_output\n        else base_project / \".helix\" / \"benchmarks\"\n    )\n    results_dir.mkdir(parents=True, exist_ok=True)\n\n    benchmark_name = str(\n        spec.get(\"name\")\n        or spec_path.stem\n    )\n\n    safe_model = re.sub(\n        r\"[^A-Za-z0-9_.-]+\",\n        \"-\",\n        model_name,\n    )\n\n    rows: list[dict[str, Any]] = []\n\n    print()\n    print(\"  HELIX MODEL BENCHMARK\")\n    print(\"  \" + \"-\" * 64)\n    print(f\"  Benchmark {benchmark_name}\")\n    print(f\"  Model     {model_name}\")\n    print(f\"  Runs      {runs}\")\n    print(\n        \"  Fallback  \"\n        + (\n            \"enabled\"\n            if args.benchmark_allow_fallbacks\n            else \"disabled\"\n        )\n    )\n    print(\"  \" + \"-\" * 64)\n\n    for run_number in range(1, runs + 1):\n        with tempfile.TemporaryDirectory(\n            prefix=\"helix-benchmark-\"\n        ) as tmp:\n            project = Path(tmp)\n\n            for relative, content in spec.get(\n                \"setup_files\",\n                {},\n            ).items():\n                target = project / str(relative)\n                target.parent.mkdir(\n                    parents=True,\n                    exist_ok=True,\n                )\n                target.write_text(\n                    str(content),\n                    encoding=\"utf-8\",\n                    newline=\"\\n\",\n                )\n\n            config = HelixConfig.load(\n                Path(args.config)\n            )\n\n            existing = config.models.get(\"main\")\n            config.models[\"main\"] = ModelSpec(\n                provider=str(args.benchmark_provider),\n                model=model_name,\n                base_url=(\n                    existing.base_url\n                    if existing\n                    else \"\"\n                ),\n                api_key_env=(\n                    existing.api_key_env\n                    if existing\n                    else \"\"\n                ),\n                timeout_seconds=(\n                    existing.timeout_seconds\n                    if existing\n                    else 180\n                ),\n                enabled=True,\n            )\n\n            if not args.benchmark_allow_fallbacks:\n                for role in (\"large\", \"remote\"):\n                    if role in config.models:\n                        config.models[role].enabled = False\n\n            prompt_path = (\n                Path(__file__).parent\n                / \"prompts\"\n                / \"coder.txt\"\n            )\n\n            agent = HelixAgent(\n                project,\n                config,\n                prompt_path,\n                AgentPermissions(),\n            )\n\n            capture = io.StringIO()\n            started = time.monotonic()\n\n            with contextlib.redirect_stdout(capture):\n                exit_code = agent.run(\n                    str(spec[\"task\"])\n                )\n\n            duration = time.monotonic() - started\n            output = capture.getvalue()\n\n            verify_command = str(\n                spec.get(\n                    \"verification_command\",\n                    \"\",\n                )\n            ).strip()\n\n            verification_ok = None\n\n            if verify_command:\n                verify = CommandRunner(\n                    project,\n                    config.command_timeout_seconds,\n                ).run(verify_command)\n                verification_ok = bool(verify[\"ok\"])\n\n            passed = (\n                exit_code == 0\n                and verification_ok is not False\n            )\n\n            row = {\n                \"run\": run_number,\n                \"passed\": passed,\n                \"agent_exit_code\": exit_code,\n                \"verification_passed\": verification_ok,\n                \"duration_seconds\": round(duration, 2),\n                \"raw_retries\": output.count(\n                    \"raw-generation retry\"\n                ),\n                \"model_repairs\": output.count(\n                    \"self-repair\"\n                ),\n                \"staged_repairs\": output.count(\n                    \"staged-action repair\"\n                ),\n                \"stalls\": output.count(\n                    \"LOOP   STALL\"\n                ),\n                \"escalations\": output.count(\n                    \"ROUTER ESCALATE\"\n                ),\n                \"model_errors\": output.count(\n                    \"MODEL  ERROR\"\n                ),\n            }\n            rows.append(row)\n\n            log_path = (\n                results_dir\n                / (\n                    f\"{benchmark_name}-\"\n                    f\"{safe_model}-run-\"\n                    f\"{run_number}.log\"\n                )\n            )\n            log_path.write_text(\n                output,\n                encoding=\"utf-8\",\n                newline=\"\\n\",\n            )\n\n            print(\n                f\"  Run {run_number:02d}  \"\n                f\"{'PASS' if passed else 'FAIL'}  \"\n                f\"{duration:.2f}s  \"\n                f\"repairs={row['model_repairs']}  \"\n                f\"raw={row['raw_retries']}  \"\n                f\"staged={row['staged_repairs']}  \"\n                f\"stalls={row['stalls']}\"\n            )\n\n    passed_count = sum(\n        1 for row in rows if row[\"passed\"]\n    )\n    average_duration = (\n        sum(\n            float(row[\"duration_seconds\"])\n            for row in rows\n        )\n        / len(rows)\n    )\n\n    summary = {\n        \"benchmark\": benchmark_name,\n        \"model\": model_name,\n        \"provider\": args.benchmark_provider,\n        \"runs\": runs,\n        \"passed\": passed_count,\n        \"success_rate\": passed_count / runs,\n        \"average_duration_seconds\": round(\n            average_duration,\n            2,\n        ),\n        \"total_raw_retries\": sum(\n            int(row[\"raw_retries\"])\n            for row in rows\n        ),\n        \"total_model_repairs\": sum(\n            int(row[\"model_repairs\"])\n            for row in rows\n        ),\n        \"total_staged_repairs\": sum(\n            int(row[\"staged_repairs\"])\n            for row in rows\n        ),\n        \"total_stalls\": sum(\n            int(row[\"stalls\"])\n            for row in rows\n        ),\n        \"total_escalations\": sum(\n            int(row[\"escalations\"])\n            for row in rows\n        ),\n        \"results\": rows,\n    }\n\n    result_base = (\n        results_dir\n        / f\"{benchmark_name}-{safe_model}\"\n    )\n\n    result_base.with_suffix(\".json\").write_text(\n        json.dumps(\n            summary,\n            indent=2,\n            ensure_ascii=False,\n        )\n        + \"\\n\",\n        encoding=\"utf-8\",\n        newline=\"\\n\",\n    )\n\n    with result_base.with_suffix(\".csv\").open(\n        \"w\",\n        newline=\"\",\n        encoding=\"utf-8\",\n    ) as handle:\n        writer = csv.DictWriter(\n            handle,\n            fieldnames=list(rows[0].keys()),\n        )\n        writer.writeheader()\n        writer.writerows(rows)\n\n    print(\"  \" + \"-\" * 64)\n    print(\n        f\"  Success   {passed_count}/{runs} \"\n        f\"({passed_count / runs:.0%})\"\n    )\n    print(\n        f\"  Avg time  {average_duration:.2f}s\"\n    )\n    print(\n        f\"  Results   {result_base.with_suffix('.json')}\"\n    )\n    print()\n\n    return 0 if passed_count == runs else 1\n\n\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "insert_before",
+          "anchor": "    return parser\n",
+          "content": "    parser.add_argument(\n        \"--benchmark\",\n        help=\"Run a benchmark definition JSON instead of the interactive shell\",\n    )\n    parser.add_argument(\n        \"--benchmark-model\",\n        help=\"Model to use as MAIN for benchmark runs\",\n    )\n    parser.add_argument(\n        \"--benchmark-provider\",\n        default=\"ollama\",\n        help=\"Provider used by --benchmark-model (default: ollama)\",\n    )\n    parser.add_argument(\n        \"--runs\",\n        type=int,\n        default=3,\n        help=\"Number of isolated benchmark runs\",\n    )\n    parser.add_argument(\n        \"--benchmark-output\",\n        help=\"Directory for benchmark JSON, CSV, and run logs\",\n    )\n    parser.add_argument(\n        \"--benchmark-allow-fallbacks\",\n        action=\"store_true\",\n        help=\"Allow LARGE/REMOTE fallback during model benchmarks\",\n    )\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "insert_after",
+          "anchor": "    prompt_path = Path(__file__).parent / \"prompts\" / \"coder.txt\"\n",
+          "content": "    if args.benchmark:\n        return run_model_benchmark(args)\n",
+          "expected_matches": 1
+        }
+      ]
+    },
+    {
+      "path": "prompts/coder.txt",
+      "sha256": "33f2cbb3effde0632a8633be691a5d6e966fc70d4a8e42c1d0323b7b8ba57bd8",
+      "edits": [
+        {
+          "op": "insert_before",
+          "anchor": "Useful tools include ",
+          "content": "83. STAGED WORK LOCK is mandatory. If an active staged file exists, do not scan the repository, patch another file, run commands, or begin another file.\n\n84. When the active staged file contains zero characters, immediately use append_file_raw or append_file for that exact file. Do not finish an empty staged file.\n\n85. When Helix rejects an action with STAGED WORK LOCK, correct only the next action. Do not repeat the rejected tool or target another file.\n\n",
+          "expected_matches": 1
+        }
+      ]
+    },
+    {
+      "path": "tests/test_helix.py",
+      "sha256": "c734b074056d4ce02b79e8fc199e0b2fed49921d149b45d43ac06480ba4f8062",
+      "edits": [
+        {
+          "op": "insert_before",
+          "anchor": "    def test_interruptible_call_returns_value(self):\n",
+          "content": "    def test_staged_action_lock_rejects_unrelated_tool(self):\n        with tempfile.TemporaryDirectory() as tmp:\n            root = Path(tmp)\n            prompt = root / \"prompt.txt\"\n            prompt.write_text(\"prompt\\n\", encoding=\"utf-8\")\n\n            config = helix.HelixConfig(\n                patchforge_cli=\"\",\n                max_steps=0,\n                command_timeout_seconds=10,\n                models={\"main\": helix.ModelSpec(\"ollama\", \"main\")},\n            )\n            agent = helix.HelixAgent(root, config, prompt)\n\n            state = helix.AgentState(\n                task=\"Create tests\",\n                project_root=root,\n            )\n            state.staged_files[\"test_app.py\"] = 0\n\n            error = agent._staged_action_lock_error(\n                \"list_files\",\n                {},\n                state,\n            )\n\n            self.assertIsNotNone(error)\n            self.assertIn(\"STAGED WORK LOCK\", error)\n            self.assertIn(\"test_app.py\", error)\n\n    def test_empty_staged_file_only_allows_append(self):\n        with tempfile.TemporaryDirectory() as tmp:\n            root = Path(tmp)\n            prompt = root / \"prompt.txt\"\n            prompt.write_text(\"prompt\\n\", encoding=\"utf-8\")\n\n            config = helix.HelixConfig(\n                patchforge_cli=\"\",\n                max_steps=0,\n                command_timeout_seconds=10,\n                models={\"main\": helix.ModelSpec(\"ollama\", \"main\")},\n            )\n            agent = helix.HelixAgent(root, config, prompt)\n\n            state = helix.AgentState(\n                task=\"Create tests\",\n                project_root=root,\n            )\n            state.staged_files[\"test_app.py\"] = 0\n\n            self.assertIsNone(\n                agent._staged_action_lock_error(\n                    \"append_file_raw\",\n                    {\"path\": \"test_app.py\"},\n                    state,\n                )\n            )\n\n            self.assertIsNotNone(\n                agent._staged_action_lock_error(\n                    \"finish_file\",\n                    {\"path\": \"test_app.py\"},\n                    state,\n                )\n            )\n\n    def test_model_circuit_breaker_marks_role_unhealthy(self):\n        config = helix.HelixConfig(\n            patchforge_cli=\"\",\n            max_steps=0,\n            command_timeout_seconds=10,\n            models={\n                \"main\": helix.ModelSpec(\"ollama\", \"main\"),\n                \"large\": helix.ModelSpec(\"ollama\", \"large\"),\n            },\n            model_circuit_breaker_failures=3,\n        )\n\n        router = helix.ModelRouter(config)\n\n        router._record_model_failure(\"large\")\n        router._record_model_failure(\"large\")\n        self.assertTrue(router._enabled(\"large\"))\n\n        router._record_model_failure(\"large\")\n        self.assertFalse(router._enabled(\"large\"))\n\n        router.reset_task_health()\n        self.assertTrue(router._enabled(\"large\"))\n\n    def test_load_benchmark_spec(self):\n        with tempfile.TemporaryDirectory() as tmp:\n            path = Path(tmp) / \"bench.json\"\n            path.write_text(\n                json.dumps(\n                    {\n                        \"name\": \"tiny\",\n                        \"task\": \"Create hello.py\",\n                        \"verification_command\": \"python hello.py\",\n                    }\n                ),\n                encoding=\"utf-8\",\n            )\n\n            spec = helix.load_benchmark_spec(path)\n\n            self.assertEqual(spec[\"name\"], \"tiny\")\n            self.assertEqual(spec[\"task\"], \"Create hello.py\")\n\n    def test_parser_accepts_benchmark_options(self):\n        args = helix.build_parser().parse_args(\n            [\n                \"--benchmark\",\n                \"bench.json\",\n                \"--benchmark-model\",\n                \"qwen3.5:9b\",\n                \"--runs\",\n                \"5\",\n            ]\n        )\n\n        self.assertEqual(args.benchmark, \"bench.json\")\n        self.assertEqual(\n            args.benchmark_model,\n            \"qwen3.5:9b\",\n        )\n        self.assertEqual(args.runs, 5)\n\n",
+          "expected_matches": 1
+        }
+      ]
+    },
+    {
+      "path": "pyproject.toml",
+      "sha256": "b1bbccc5fdd2fa2761b8ec654b5082875a4bdc1b56352e158088d83b8616e657",
+      "edits": [
+        {
+          "op": "replace",
+          "old": "version = \"0.4.1\"\n",
+          "new": "version = \"0.4.2\"\n",
+          "expected_matches": 1
+        }
+      ]
+    },
+    {
+      "path": "README.md",
+      "sha256": "9c483b88c0af1c27bc6f085d50c7ddc3044397a08f820f0a38de1c6ca164c5c7",
+      "edits": [
+        {
+          "op": "replace",
+          "old": "Current version: **v0.4.1**",
+          "new": "Current version: **v0.4.2**",
+          "expected_matches": 1
+        }
+      ]
+    },
+    {
+      "path": "benchmarks/todo.json",
+      "action": "create",
+      "content": "{\n  \"name\": \"todo-cli\",\n  \"task\": \"Build a complete Python command-line todo application from scratch.\\\\n\\\\nRequirements:\\\\n- Store todos persistently in a JSON file.\\\\n- Support add, list, done, and delete commands.\\\\n- Each todo must have a numeric ID, text, and completed state.\\\\n- The list command must clearly show completed and incomplete tasks.\\\\n- Add automated tests using pytest.\\\\n- Do not stop until the application works and all tests pass.\\\\n- Use pytest -q as the final verification.\",\n  \"setup_files\": {},\n  \"verification_command\": \"pytest -q\"\n}\n"
+    }
+  ],
+  "build": [
+    {
+      "type": "command",
+      "name": "Compile Helix",
+      "command": "python -m py_compile helix.py",
+      "expect_exit": 0,
+      "timeout_seconds": 60
+    },
+    {
+      "type": "command",
+      "name": "Compile tests",
+      "command": "python -m py_compile tests/test_helix.py",
+      "expect_exit": 0,
+      "timeout_seconds": 60
+    }
+  ],
+  "verify": [
+    {
+      "type": "command",
+      "name": "Check diff",
+      "command": "git diff --check",
+      "expect_exit": 0,
+      "timeout_seconds": 60
+    }
+  ],
+  "tests": [
+    {
+      "type": "command",
+      "name": "Run Helix tests",
+      "command": "python -m unittest discover -s tests -v",
+      "expect_exit": 0,
+      "timeout_seconds": 120,
+      "output_contains": "OK"
+    }
+  ],
+  "options": {
+    "rollback_on_verify_failure": true
+  }
+}

@@ -1,0 +1,127 @@
+{
+  "version": 2,
+  "name": "Helix v0.4.7 deterministic post-finish continuation",
+  "preflight": [
+    {
+      "type": "sha256",
+      "name": "Check helix.py",
+      "path": "helix.py",
+      "equals": "ba70c1a73a65a51dc57a3ebc16558f0eb43ad6febabd83b65a701a9e3d0e0586"
+    },
+    {
+      "type": "sha256",
+      "name": "Check tests/test_helix.py",
+      "path": "tests/test_helix.py",
+      "equals": "e9436daf8ca236a590c4d6e3a31aaf5ff4de42d35c53b83ba80648b51eed9370"
+    },
+    {
+      "type": "sha256",
+      "name": "Check pyproject.toml",
+      "path": "pyproject.toml",
+      "equals": "3bf73055c8a87c3c037ce9cee1e5f93f65402fdb1a2e427e2c33f86110c3a768"
+    },
+    {
+      "type": "sha256",
+      "name": "Check README.md",
+      "path": "README.md",
+      "equals": "bd490042e391a12d9a514bb4345778ff7b9dd033d2f73de001471187d2c125b4"
+    }
+  ],
+  "files": [
+    {
+      "path": "helix.py",
+      "sha256": "ba70c1a73a65a51dc57a3ebc16558f0eb43ad6febabd83b65a701a9e3d0e0586",
+      "edits": [
+        {
+          "op": "replace",
+          "old": "VERSION = \"0.4.6\"\n",
+          "new": "VERSION = \"0.4.7\"\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "        if state.post_finish_pending:\n            # A file was just completed. Do not let the model waste the\n            # continuation step rediscovering the repository or invoking\n            # staged-file operations when no staged file exists.\n            blocked = {\n                \"list_files\",\n                \"read_file\",\n                \"append_file\",\n                \"append_file_raw\",\n                \"finish_file\",\n            }\n\n            filtered = [\n                entry\n                for entry in TOOLS\n                if self._tool_entry_name(entry) not in blocked\n            ]\n\n            # Defensive fallback: never accidentally send an empty tool list\n            # if a future tool-schema format changes.\n            return filtered or TOOLS\n\n        return TOOLS\n",
+          "new": "        if state.post_finish_pending:\n            # If the original task still requires an automated test file,\n            # force the transition into that concrete next file instead of\n            # allowing repository scans, unrelated reads, or commands.\n            if self._post_finish_requires_test_file(state):\n                return [\n                    entry\n                    for entry in TOOLS\n                    if self._tool_entry_name(entry) == \"begin_file\"\n                ]\n\n            # Otherwise the previous file is complete. Avoid pointless\n            # rediscovery/staged operations while allowing concrete follow-up\n            # implementation, patching, or verification actions.\n            blocked = {\n                \"list_files\",\n                \"read_file\",\n                \"append_file\",\n                \"append_file_raw\",\n                \"finish_file\",\n            }\n\n            filtered = [\n                entry\n                for entry in TOOLS\n                if self._tool_entry_name(entry) not in blocked\n            ]\n\n            return filtered or TOOLS\n\n        return TOOLS\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "insert_before",
+          "anchor": "    def _post_finish_guard(\n",
+          "content": "    def _post_finish_requires_test_file(\n        self,\n        state: AgentState,\n    ) -> bool:\n        if not state.post_finish_pending:\n            return False\n\n        guidance = self._remaining_requirements_instruction(\n            state\n        ).lower()\n\n        return (\n            \"automated tests are requested\" in guidance\n            and \"no test-like file has been completed yet\" in guidance\n        )\n\n    @staticmethod\n    def _post_finish_test_path(state: AgentState) -> str:\n        completed = str(\n            state.last_completed_file or \"app.py\"\n        )\n\n        path = Path(completed)\n        stem = path.stem\n\n        if stem.startswith(\"test_\"):\n            stem = stem[5:] or \"app\"\n\n        return str(\n            path.with_name(f\"test_{stem}.py\")\n        ).replace(\"\\\\\", \"/\")\n\n    def _post_finish_action_lock_error(\n        self,\n        tool: str,\n        args: dict[str, Any],\n        state: AgentState,\n    ) -> str | None:\n        if not state.post_finish_pending:\n            return None\n\n        if self._post_finish_requires_test_file(state):\n            expected = self._post_finish_test_path(state)\n\n            if tool != \"begin_file\":\n                return (\n                    \"POST-FINISH ACTION LOCK: automated tests are still \"\n                    f\"required. The next action must be begin_file for \"\n                    f\"{expected}. Tool \\\"{tool}\\\" is unavailable until \"\n                    \"the required test file is started.\"\n                )\n\n            target = str(args.get(\"path\", \"\"))\n\n            try:\n                normalized = self.workspace.normalize_relative(\n                    target\n                )\n            except Exception:\n                normalized = target.replace(\"\\\\\", \"/\")\n\n            if normalized != expected:\n                return (\n                    \"POST-FINISH ACTION LOCK: automated tests are still \"\n                    f\"required. Begin the expected test file {expected}, \"\n                    f'not \"{target}\".'\n                )\n\n            return None\n\n        # Reuse the existing post-finish safety rules, but run them before\n        # tool execution so invalid actions do not consume agent steps.\n        return self._post_finish_guard(\n            tool,\n            args,\n            state,\n        )\n\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "                    lock_error = self._staged_action_lock_error(\n                        tool,\n                        args,\n                        state,\n                    )\n\n                    if not lock_error:\n                        break\n\n                    # Give the model one opportunity to correct an invalid\n                    # action while a file is staged. If it still attempts to\n                    # leave a non-empty staged file, Helix deterministically\n                    # finishes that file instead of burning more model calls.\n                    if staged_repair >= 1:\n                        active_staged = self._active_staged_file(state)\n\n                        if active_staged:\n                            staged_content = state.staged_files.get(\n                                active_staged,\n                                \"\",\n                            )\n\n                            if staged_content:\n                                print(\n                                    f\"[CORE] staged recovery -> finish_file \"\n                                    f\"{active_staged}\"\n                                )\n                                tool = \"finish_file\"\n                                args = {\"path\": active_staged}\n                                action = {\n                                    \"tool\": tool,\n                                    \"args\": args,\n                                }\n                                break\n\n                        raise HelixError(\n                            \"Model repeatedly violated the staged-work lock. \"\n                            + lock_error\n                        )\n\n                    staged_repair += 1\n\n                    print(\n                        f\"[MODEL] {used_role} staged-action repair \"\n                        f\"{staged_repair}/1: \"\n                        f\"{lock_error}\"\n                    )\n\n                    payload = json.loads(user_payload)\n                    payload[\"staged_action_repair\"] = {\n                        \"attempt\": staged_repair,\n                        \"error\": lock_error,\n                        \"instruction\": (\n                            \"Correct ONLY the next action. \"\n                            \"The active staged file must be continued. \"\n                            \"If the staged file is complete, call finish_file \"\n                            \"for that exact file. Do not inspect or target \"\n                            \"another file.\"\n                        ),\n                    }\n                    request_payload = json.dumps(\n                        payload,\n                        indent=2,\n                    )\n",
+          "new": "                    lock_kind = \"staged\"\n                    lock_error = self._staged_action_lock_error(\n                        tool,\n                        args,\n                        state,\n                    )\n\n                    if not lock_error:\n                        lock_kind = \"post-finish\"\n                        lock_error = self._post_finish_action_lock_error(\n                            tool,\n                            args,\n                            state,\n                        )\n\n                    if not lock_error:\n                        break\n\n                    # Give the model one correction attempt. After that,\n                    # recover deterministically when Helix already knows the\n                    # only valid continuation.\n                    if staged_repair >= 1:\n                        active_staged = self._active_staged_file(state)\n\n                        if active_staged:\n                            staged_content = state.staged_files.get(\n                                active_staged,\n                                \"\",\n                            )\n\n                            if staged_content:\n                                print(\n                                    f\"[CORE] staged recovery -> finish_file \"\n                                    f\"{active_staged}\"\n                                )\n                                tool = \"finish_file\"\n                                args = {\"path\": active_staged}\n                                action = {\n                                    \"tool\": tool,\n                                    \"args\": args,\n                                }\n                                break\n\n                        if (\n                            lock_kind == \"post-finish\"\n                            and self._post_finish_requires_test_file(\n                                state\n                            )\n                        ):\n                            test_path = self._post_finish_test_path(\n                                state\n                            )\n\n                            print(\n                                \"[CORE] post-finish recovery -> \"\n                                f\"begin_file {test_path}\"\n                            )\n\n                            tool = \"begin_file\"\n                            args = {\"path\": test_path}\n                            action = {\n                                \"tool\": tool,\n                                \"args\": args,\n                            }\n                            break\n\n                        raise HelixError(\n                            \"Model repeatedly violated the \"\n                            f\"{lock_kind} action lock. \"\n                            + lock_error\n                        )\n\n                    staged_repair += 1\n\n                    repair_name = (\n                        \"staged-action\"\n                        if lock_kind == \"staged\"\n                        else \"post-finish-action\"\n                    )\n\n                    print(\n                        f\"[MODEL] {used_role} {repair_name} repair \"\n                        f\"{staged_repair}/1: \"\n                        f\"{lock_error}\"\n                    )\n\n                    payload = json.loads(user_payload)\n                    payload[\"action_lock_repair\"] = {\n                        \"attempt\": staged_repair,\n                        \"kind\": lock_kind,\n                        \"error\": lock_error,\n                        \"instruction\": (\n                            \"Correct ONLY the next action. \"\n                            \"Follow the current action lock exactly. \"\n                            \"Do not scan, inspect unrelated files, or repeat \"\n                            \"the rejected action.\"\n                        ),\n                    }\n\n                    request_payload = json.dumps(\n                        payload,\n                        indent=2,\n                    )\n",
+          "expected_matches": 1
+        }
+      ]
+    },
+    {
+      "path": "tests/test_helix.py",
+      "sha256": "e9436daf8ca236a590c4d6e3a31aaf5ff4de42d35c53b83ba80648b51eed9370",
+      "edits": [
+        {
+          "op": "insert_before",
+          "anchor": "    def test_staged_action_lock_rejects_unrelated_tool(self):\n",
+          "content": "    def test_post_finish_test_path_from_todo_file(self):\n        state = type(\n            \"State\",\n            (),\n            {\"last_completed_file\": \"todo.py\"},\n        )()\n\n        self.assertEqual(\n            helix.HelixAgent._post_finish_test_path(state),\n            \"test_todo.py\",\n        )\n\n    def test_post_finish_test_path_preserves_directory(self):\n        state = type(\n            \"State\",\n            (),\n            {\"last_completed_file\": \"src/todo_app.py\"},\n        )()\n\n        self.assertEqual(\n            helix.HelixAgent._post_finish_test_path(state),\n            \"src/test_todo_app.py\",\n        )\n\n    def test_post_finish_recovery_is_pre_execution(self):\n        source = Path(helix.__file__).read_text(\n            encoding=\"utf-8\"\n        )\n\n        self.assertIn(\n            \"_post_finish_action_lock_error(\",\n            source,\n        )\n        self.assertIn(\n            \"[CORE] post-finish recovery -> \",\n            source,\n        )\n        self.assertIn(\n            \"post-finish-action\",\n            source,\n        )\n\n",
+          "expected_matches": 1
+        }
+      ]
+    },
+    {
+      "path": "pyproject.toml",
+      "sha256": "3bf73055c8a87c3c037ce9cee1e5f93f65402fdb1a2e427e2c33f86110c3a768",
+      "edits": [
+        {
+          "op": "replace",
+          "old": "version = \"0.4.6\"\n",
+          "new": "version = \"0.4.7\"\n",
+          "expected_matches": 1
+        }
+      ]
+    },
+    {
+      "path": "README.md",
+      "sha256": "bd490042e391a12d9a514bb4345778ff7b9dd033d2f73de001471187d2c125b4",
+      "edits": [
+        {
+          "op": "replace",
+          "old": "Current version: **v0.4.6**",
+          "new": "Current version: **v0.4.7**",
+          "expected_matches": 1
+        }
+      ]
+    }
+  ],
+  "build": [
+    {
+      "type": "command",
+      "name": "Compile Helix",
+      "command": "python -m py_compile helix.py",
+      "expect_exit": 0,
+      "timeout_seconds": 60
+    },
+    {
+      "type": "command",
+      "name": "Compile tests",
+      "command": "python -m py_compile tests/test_helix.py",
+      "expect_exit": 0,
+      "timeout_seconds": 60
+    }
+  ],
+  "tests": [
+    {
+      "type": "command",
+      "name": "Run Helix tests",
+      "command": "python -m unittest discover -s tests -v",
+      "expect_exit": 0,
+      "timeout_seconds": 120,
+      "output_contains": "OK"
+    }
+  ],
+  "options": {
+    "rollback_on_verify_failure": true
+  }
+}

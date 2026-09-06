@@ -1,0 +1,115 @@
+{
+  "version": 2,
+  "name": "Helix v0.4.5 deterministic staged-file recovery",
+  "preflight": [
+    {
+      "type": "sha256",
+      "name": "Check helix.py",
+      "path": "helix.py",
+      "equals": "903c54cc9602e54ea70b242eb6c3e465350ae58a18a64193eb5ffbcd8b4c3335"
+    },
+    {
+      "type": "sha256",
+      "name": "Check tests/test_helix.py",
+      "path": "tests/test_helix.py",
+      "equals": "671117934c42953fb3f69977e36082d29d70043922fdb92a1d007cdf20321146"
+    },
+    {
+      "type": "sha256",
+      "name": "Check pyproject.toml",
+      "path": "pyproject.toml",
+      "equals": "95de744a0ade4aa569079eb0c40affd0acf0947525595c8f1ae4170baeecb1a1"
+    },
+    {
+      "type": "sha256",
+      "name": "Check README.md",
+      "path": "README.md",
+      "equals": "57192dc20b99b97418d64c6a8f66f3136f2ee87f0b74e72bfe5ea59be5d0150d"
+    }
+  ],
+  "files": [
+    {
+      "path": "helix.py",
+      "sha256": "903c54cc9602e54ea70b242eb6c3e465350ae58a18a64193eb5ffbcd8b4c3335",
+      "edits": [
+        {
+          "op": "replace",
+          "old": "VERSION = \"0.4.4\"\n",
+          "new": "VERSION = \"0.4.5\"\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "                    if not lock_error:\n                        break\n\n                    if staged_repair >= self.config.model_repair_attempts:\n                        raise HelixError(\n                            \"Model repeatedly violated the staged-work lock. \"\n                            + lock_error\n                        )\n\n                    staged_repair += 1\n\n                    print(\n                        f\"[MODEL] {used_role} staged-action repair \"\n                        f\"{staged_repair}/\"\n                        f\"{self.config.model_repair_attempts}: \"\n                        f\"{lock_error}\"\n                    )\n\n                    payload = json.loads(user_payload)\n                    payload[\"staged_action_repair\"] = {\n                        \"attempt\": staged_repair,\n                        \"error\": lock_error,\n                        \"instruction\": (\n                            \"Correct ONLY the next action. \"\n                            \"The active staged file must be continued. \"\n                            \"Do not repeat the rejected action.\"\n                        ),\n                    }\n                    request_payload = json.dumps(\n                        payload,\n                        indent=2,\n                    )\n",
+          "new": "                    if not lock_error:\n                        break\n\n                    # Give the model one opportunity to correct an invalid\n                    # action while a file is staged. If it still attempts to\n                    # leave a non-empty staged file, Helix deterministically\n                    # finishes that file instead of burning more model calls.\n                    if staged_repair >= 1:\n                        active_staged = self._active_staged_file(state)\n\n                        if active_staged:\n                            staged_content = state.staged_files.get(\n                                active_staged,\n                                \"\",\n                            )\n\n                            if staged_content:\n                                print(\n                                    f\"[CORE] staged recovery -> finish_file \"\n                                    f\"{active_staged}\"\n                                )\n                                tool = \"finish_file\"\n                                args = {\"path\": active_staged}\n                                action = {\n                                    \"tool\": tool,\n                                    \"args\": args,\n                                }\n                                break\n\n                        raise HelixError(\n                            \"Model repeatedly violated the staged-work lock. \"\n                            + lock_error\n                        )\n\n                    staged_repair += 1\n\n                    print(\n                        f\"[MODEL] {used_role} staged-action repair \"\n                        f\"{staged_repair}/1: \"\n                        f\"{lock_error}\"\n                    )\n\n                    payload = json.loads(user_payload)\n                    payload[\"staged_action_repair\"] = {\n                        \"attempt\": staged_repair,\n                        \"error\": lock_error,\n                        \"instruction\": (\n                            \"Correct ONLY the next action. \"\n                            \"The active staged file must be continued. \"\n                            \"If the staged file is complete, call finish_file \"\n                            \"for that exact file. Do not inspect or target \"\n                            \"another file.\"\n                        ),\n                    }\n                    request_payload = json.dumps(\n                        payload,\n                        indent=2,\n                    )\n",
+          "expected_matches": 1
+        }
+      ]
+    },
+    {
+      "path": "tests/test_helix.py",
+      "sha256": "671117934c42953fb3f69977e36082d29d70043922fdb92a1d007cdf20321146",
+      "edits": [
+        {
+          "op": "insert_before",
+          "anchor": "    def test_staged_action_lock_rejects_unrelated_tool(self):\n",
+          "content": "    def test_staged_recovery_policy_uses_one_repair(self):\n        source = Path(helix.__file__).read_text(encoding=\"utf-8\")\n\n        self.assertIn(\n            \"if staged_repair >= 1:\",\n            source,\n        )\n        self.assertIn(\n            \"[CORE] staged recovery -> finish_file\",\n            source,\n        )\n        self.assertIn(\n            'f\"{staged_repair}/1: \"',\n            source,\n        )\n\n",
+          "expected_matches": 1
+        }
+      ]
+    },
+    {
+      "path": "pyproject.toml",
+      "sha256": "95de744a0ade4aa569079eb0c40affd0acf0947525595c8f1ae4170baeecb1a1",
+      "edits": [
+        {
+          "op": "replace",
+          "old": "version = \"0.4.4\"\n",
+          "new": "version = \"0.4.5\"\n",
+          "expected_matches": 1
+        }
+      ]
+    },
+    {
+      "path": "README.md",
+      "sha256": "57192dc20b99b97418d64c6a8f66f3136f2ee87f0b74e72bfe5ea59be5d0150d",
+      "edits": [
+        {
+          "op": "replace",
+          "old": "Current version: **v0.4.4**",
+          "new": "Current version: **v0.4.5**",
+          "expected_matches": 1
+        }
+      ]
+    }
+  ],
+  "build": [
+    {
+      "type": "command",
+      "name": "Compile Helix",
+      "command": "python -m py_compile helix.py",
+      "expect_exit": 0,
+      "timeout_seconds": 60
+    },
+    {
+      "type": "command",
+      "name": "Compile tests",
+      "command": "python -m py_compile tests/test_helix.py",
+      "expect_exit": 0,
+      "timeout_seconds": 60
+    }
+  ],
+  "tests": [
+    {
+      "type": "command",
+      "name": "Run Helix tests",
+      "command": "python -m unittest discover -s tests -v",
+      "expect_exit": 0,
+      "timeout_seconds": 120,
+      "output_contains": "OK"
+    }
+  ],
+  "options": {
+    "rollback_on_verify_failure": true
+  }
+}

@@ -1,0 +1,81 @@
+{
+  "version": 2,
+  "name": "Helix v0.3.6 two-phase raw generation hotfix",
+  "preflight": [
+    {
+      "type": "sha256",
+      "name": "Check current helix.py baseline",
+      "path": "helix.py",
+      "equals": "aade0932c00229791b8c1437d6c5734f5414332723aee187bd527cf3fcdf67d9"
+    },
+    {
+      "type": "sha256",
+      "name": "Check current tests baseline",
+      "path": "tests/test_helix.py",
+      "equals": "2c016374d4b951ab9d497fc228cc8dc816d0002f266355500b0887bd9cb1f4fc"
+    }
+  ],
+  "files": [
+    {
+      "path": "helix.py",
+      "sha256": "aade0932c00229791b8c1437d6c5734f5414332723aee187bd527cf3fcdf67d9",
+      "edits": [
+        {
+          "op": "replace",
+          "old": "    if tool == \"append_file_raw\":\n        raw_content = args.get(\"_raw_content\")\n        if not isinstance(raw_content, str):\n            raise HelixError(\n                \"append_file_raw requires a literal body between \"\n                \"<<<HELIX_CONTENT and HELIX_CONTENT. \"\n                \"Do not place source code inside the JSON header.\"\n            )\n\n",
+          "new": "",
+          "expected_matches": 1
+        }
+      ]
+    },
+    {
+      "path": "tests/test_helix.py",
+      "sha256": "2c016374d4b951ab9d497fc228cc8dc816d0002f266355500b0887bd9cb1f4fc",
+      "edits": [
+        {
+          "op": "replace",
+          "old": "    def test_router_repairs_invalid_json_before_fallback(self):\n        config = helix.HelixConfig(\n            patchforge_cli=\"\",\n            max_steps=0,\n            command_timeout_seconds=10,\n            models={\n                \"main\": helix.ModelSpec(\"ollama\", \"main\"),\n                \"large\": helix.ModelSpec(\"ollama\", \"large\"),\n            },\n            model_repair_attempts=2,\n        )\n        router = helix.ModelRouter(config)\n\n        class FakeBackend:\n            def __init__(self):\n                self.calls = []\n\n            def complete(self, system, user):\n                self.calls.append(user)\n                if len(self.calls) == 1:\n                    return \"\"\n                if len(self.calls) == 2:\n                    return '{\"tool\":\"append_file\",\"args\":{\"path\":\"todo.py\"}}'\n                return json.dumps(\n                    {\n                        \"tool\": \"append_file\",\n                        \"args\": {\n                            \"path\": \"todo.py\",\n                            \"content\": \"new content\",\n                        },\n                    }\n                )\n\n        main_backend = FakeBackend()\n        large_called = {\"value\": False}\n\n        class LargeBackend:\n            def complete(self, system, user):\n                large_called[\"value\"] = True\n                return json.dumps(\n                    {\"tool\": \"list_files\", \"args\": {}}\n                )\n\n        def fake_backend(role):\n            if role == \"main\":\n                return main_backend\n            return LargeBackend()\n\n        router.backend = fake_backend\n\n        user = json.dumps(\n            {\n                \"task\": \"Build todo\",\n                \"staged_files\": [\n                    {\"path\": \"todo.py\", \"characters\": 1000}\n                ],\n            }\n        )\n\n        role, action = router.action_with_fallback(\n            \"main\",\n            \"system\",\n            user,\n        )\n\n        self.assertEqual(role, \"main\")\n        self.assertEqual(action[\"tool\"], \"append_file\")\n        self.assertEqual(len(main_backend.calls), 3)\n        self.assertFalse(large_called[\"value\"])\n        self.assertIn(\"todo.py\", main_backend.calls[1])\n        self.assertIn(\"empty response\", main_backend.calls[1].lower())\n        self.assertIn(\"missing required argument\", main_backend.calls[2])\n",
+          "new": "    def test_router_repairs_invalid_json_before_fallback(self):\n        config = helix.HelixConfig(\n            patchforge_cli=\"\",\n            max_steps=0,\n            command_timeout_seconds=10,\n            models={\n                \"main\": helix.ModelSpec(\"ollama\", \"main\"),\n                \"large\": helix.ModelSpec(\"ollama\", \"large\"),\n            },\n            model_repair_attempts=2,\n        )\n        router = helix.ModelRouter(config)\n\n        class FakeBackend:\n            def __init__(self):\n                self.calls = []\n\n            def complete(\n                self,\n                system,\n                user,\n                *,\n                json_mode=True,\n            ):\n                self.calls.append(user)\n                if len(self.calls) == 1:\n                    return \"\"\n                if len(self.calls) == 2:\n                    return '{\"tool\":\"append_file\",\"args\":{\"path\":\"todo.py\"}}'\n                return json.dumps(\n                    {\n                        \"tool\": \"append_file\",\n                        \"args\": {\n                            \"path\": \"todo.py\",\n                            \"content\": \"new content\",\n                        },\n                    }\n                )\n\n        main_backend = FakeBackend()\n        large_called = {\"value\": False}\n\n        class LargeBackend:\n            def complete(\n                self,\n                system,\n                user,\n                *,\n                json_mode=True,\n            ):\n                large_called[\"value\"] = True\n                return json.dumps(\n                    {\"tool\": \"list_files\", \"args\": {}}\n                )\n\n        def fake_backend(role):\n            if role == \"main\":\n                return main_backend\n            return LargeBackend()\n\n        router.backend = fake_backend\n\n        user = json.dumps(\n            {\n                \"task\": \"Build todo\",\n                \"staged_files\": [\n                    {\"path\": \"todo.py\", \"characters\": 1000}\n                ],\n            }\n        )\n\n        role, action = router.action_with_fallback(\n            \"main\",\n            \"system\",\n            user,\n        )\n\n        self.assertEqual(role, \"main\")\n        self.assertEqual(action[\"tool\"], \"append_file\")\n        self.assertEqual(len(main_backend.calls), 3)\n        self.assertFalse(large_called[\"value\"])\n        self.assertIn(\"todo.py\", main_backend.calls[1])\n        self.assertIn(\"empty response\", main_backend.calls[1].lower())\n        self.assertIn(\"missing required argument\", main_backend.calls[2])\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "    def test_repair_guidance_recommends_raw_transport_for_append(self):\n        broken = (\n            '{\"tool\":\"append_file\",\"args\":{\"path\":\"app.py\",'\n            '\"content\":\"print(\"hello\")\"}}'\n        )\n\n        guidance = helix.repair_schema_guidance(broken)\n\n        self.assertIn(\"append_file_raw\", guidance)\n        self.assertIn(\"<<<HELIX_CONTENT\", guidance)\n        self.assertIn(\"Do not put source code in the JSON header\", guidance)\n",
+          "new": "    def test_repair_guidance_recommends_raw_transport_for_append(self):\n        broken = (\n            '{\"tool\":\"append_file\",\"args\":{\"path\":\"app.py\",'\n            '\"content\":\"print(\"hello\")\"}}'\n        )\n\n        guidance = helix.repair_schema_guidance(broken)\n\n        self.assertIn(\"append_file_raw\", guidance)\n        self.assertIn('{\"tool\":\"append_file_raw\"', guidance)\n        self.assertIn(\"Do not include source code in this JSON response\", guidance)\n",
+          "expected_matches": 1
+        }
+      ]
+    }
+  ],
+  "build": [
+    {
+      "type": "command",
+      "name": "Compile Helix",
+      "command": "python -m py_compile helix.py",
+      "expect_exit": 0,
+      "timeout_seconds": 60
+    }
+  ],
+  "verify": [
+    {
+      "type": "command",
+      "name": "Check resulting diff",
+      "command": "git diff --check",
+      "expect_exit": 0,
+      "timeout_seconds": 60
+    }
+  ],
+  "tests": [
+    {
+      "type": "command",
+      "name": "Run Helix tests",
+      "command": "python -m unittest discover -s tests -v",
+      "expect_exit": 0,
+      "timeout_seconds": 120,
+      "output_contains": "OK"
+    }
+  ],
+  "options": {
+    "rollback_on_verify_failure": true
+  }
+}

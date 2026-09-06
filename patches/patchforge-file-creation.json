@@ -1,0 +1,98 @@
+{
+  "version": 2,
+  "name": "Patch Forge - Add New File Creation",
+
+  "preflight": [
+    {
+      "type": "sha256",
+      "name": "Check Patch Forge backend baseline",
+      "path": "patchforge.py",
+      "equals": "AD0636A4902CF6A53F8907457BA91ABA99C9C44B517BEBB52B4787FE65D5F9D1"
+    }
+  ],
+
+  "files": [
+    {
+      "path": "patchforge.py",
+      "sha256": "AD0636A4902CF6A53F8907457BA91ABA99C9C44B517BEBB52B4787FE65D5F9D1",
+
+      "edits": [
+        {
+          "op": "replace",
+          "old": "@dataclass\nclass PreparedFile:\n    relative_path: str\n    absolute_path: Path\n    original_bytes: bytes\n    new_bytes: bytes\n    original_sha256: str\n    new_sha256: str\n",
+          "new": "@dataclass\nclass PreparedFile:\n    relative_path: str\n    absolute_path: Path\n    original_exists: bool\n    original_bytes: bytes\n    new_bytes: bytes\n    original_sha256: str\n    new_sha256: str\n",
+          "expected_matches": 1
+        },
+
+        {
+          "op": "insert_before",
+          "anchor": "        if not absolute_path.exists():\n            raise PatchForgeError(\n                f\"{context}: file does not exist: {relative_path}\"\n            )\n",
+          "content": "        action = file_spec.get(\n            \"action\",\n            \"modify\",\n        )\n\n        if not isinstance(action, str):\n            raise PatchForgeError(\n                f\"{context}: action must be a string.\"\n            )\n\n        if action not in (\n            \"modify\",\n            \"create\",\n        ):\n            raise PatchForgeError(\n                f\"{context}: unsupported file action '{action}'.\"\n            )\n\n        if action == \"create\":\n            if absolute_path.exists():\n                raise PatchForgeError(\n                    f\"{context}: create target already exists: \"\n                    f\"{relative_path}\"\n                )\n\n            if \"sha256\" in file_spec:\n                raise PatchForgeError(\n                    f\"{context}: create entries must not contain sha256.\"\n                )\n\n            if \"edits\" in file_spec:\n                raise PatchForgeError(\n                    f\"{context}: create entries use content instead of edits.\"\n                )\n\n            content = normalize_newlines(\n                require_string(\n                    file_spec,\n                    \"content\",\n                    context,\n                )\n            )\n\n            new_bytes = content.encode(\n                \"utf-8\"\n            )\n\n            prepared.append(\n                PreparedFile(\n                    relative_path=relative_path,\n                    absolute_path=absolute_path,\n                    original_exists=False,\n                    original_bytes=b\"\",\n                    new_bytes=new_bytes,\n                    original_sha256=\"\",\n                    new_sha256=sha256_bytes(\n                        new_bytes\n                    ),\n                )\n            )\n\n            continue\n\n",
+          "expected_matches": 1
+        },
+
+        {
+          "op": "replace",
+          "old": "            PreparedFile(\n                relative_path=relative_path,\n                absolute_path=absolute_path,\n                original_bytes=original_bytes,\n                new_bytes=new_bytes,\n                original_sha256=original_hash,\n                new_sha256=sha256_bytes(\n                    new_bytes\n                ),\n            )\n",
+          "new": "            PreparedFile(\n                relative_path=relative_path,\n                absolute_path=absolute_path,\n                original_exists=True,\n                original_bytes=original_bytes,\n                new_bytes=new_bytes,\n                original_sha256=original_hash,\n                new_sha256=sha256_bytes(\n                    new_bytes\n                ),\n            )\n",
+          "expected_matches": 1
+        },
+
+        {
+          "op": "replace",
+          "old": "    for item in files:\n        destination = (\n            backup_root\n            / Path(item.relative_path)\n        )\n\n        destination.parent.mkdir(\n            parents=True,\n            exist_ok=True,\n        )\n\n        destination.write_bytes(\n            item.original_bytes\n        )\n\n        manifest_files.append(\n            {\n                \"path\": item.relative_path,\n                \"sha256\": item.original_sha256,\n                \"patched_sha256\": item.new_sha256,\n            }\n        )\n",
+          "new": "    for item in files:\n        if item.original_exists:\n            destination = (\n                backup_root\n                / Path(item.relative_path)\n            )\n\n            destination.parent.mkdir(\n                parents=True,\n                exist_ok=True,\n            )\n\n            destination.write_bytes(\n                item.original_bytes\n            )\n\n        manifest_files.append(\n            {\n                \"path\": item.relative_path,\n                \"existed\": item.original_exists,\n                \"sha256\": (\n                    item.original_sha256\n                    if item.original_exists\n                    else None\n                ),\n                \"patched_sha256\": item.new_sha256,\n            }\n        )\n",
+          "expected_matches": 1
+        },
+
+        {
+          "op": "replace",
+          "old": "        for item in reversed(written):\n            try:\n                atomic_write(\n                    item.absolute_path,\n                    item.original_bytes,\n                )\n            except Exception:\n                pass\n",
+          "new": "        for item in reversed(written):\n            try:\n                if item.original_exists:\n                    atomic_write(\n                        item.absolute_path,\n                        item.original_bytes,\n                    )\n                else:\n                    item.absolute_path.unlink(\n                        missing_ok=True\n                    )\n            except Exception:\n                pass\n",
+          "expected_matches": 1
+        },
+
+        {
+          "op": "replace",
+          "old": "        print(\n            f\"  old SHA-256: \"\n            f\"{item.original_sha256}\"\n        )\n\n        print(\n            f\"  new SHA-256: \"\n            f\"{item.new_sha256}\"\n        )\n",
+          "new": "        if item.original_exists:\n            print(\n                f\"  old SHA-256: \"\n                f\"{item.original_sha256}\"\n            )\n        else:\n            print(\n                \"  old SHA-256: (new file)\"\n            )\n\n        print(\n            f\"  new SHA-256: \"\n            f\"{item.new_sha256}\"\n        )\n",
+          "expected_matches": 1
+        },
+
+        {
+          "op": "replace",
+          "old": "        chunks.extend(\n            difflib.unified_diff(\n                old_text.splitlines(keepends=True),\n                new_text.splitlines(keepends=True),\n                fromfile=f\"a/{item.relative_path}\",\n                tofile=f\"b/{item.relative_path}\",\n                lineterm=\"\\n\",\n            )\n        )\n",
+          "new": "        chunks.extend(\n            difflib.unified_diff(\n                old_text.splitlines(keepends=True),\n                new_text.splitlines(keepends=True),\n                fromfile=(\n                    f\"a/{item.relative_path}\"\n                    if item.original_exists\n                    else \"/dev/null\"\n                ),\n                tofile=f\"b/{item.relative_path}\",\n                lineterm=\"\\n\",\n            )\n        )\n",
+          "expected_matches": 1
+        },
+
+        {
+          "op": "replace",
+          "old": "    restore_items: list[\n        tuple[Path, bytes]\n    ] = []\n",
+          "new": "    restore_items: list[\n        tuple[Path, bytes | None]\n    ] = []\n",
+          "expected_matches": 1
+        },
+
+        {
+          "op": "replace",
+          "old": "        backup = (\n            checkpoint\n            / \"files\"\n            / relative\n        )\n\n        destination = resolve_repo_path(\n            repo,\n            relative,\n        )\n\n        if not backup.exists():\n            raise PatchForgeError(\n                f\"Missing checkpoint file: {relative}\"\n            )\n\n        restore_items.append(\n            (\n                destination,\n                backup.read_bytes(),\n            )\n        )\n\n    for destination, data in restore_items:\n        atomic_write(\n            destination,\n            data,\n        )\n",
+          "new": "        destination = resolve_repo_path(\n            repo,\n            relative,\n        )\n\n        existed = entry.get(\n            \"existed\",\n            True,\n        )\n\n        if not isinstance(existed, bool):\n            raise PatchForgeError(\n                \"Checkpoint manifest contains invalid existed state.\"\n            )\n\n        if existed:\n            backup = (\n                checkpoint\n                / \"files\"\n                / relative\n            )\n\n            if not backup.exists():\n                raise PatchForgeError(\n                    f\"Missing checkpoint file: {relative}\"\n                )\n\n            restore_items.append(\n                (\n                    destination,\n                    backup.read_bytes(),\n                )\n            )\n        else:\n            patched_hash = entry.get(\n                \"patched_sha256\"\n            )\n\n            if destination.exists():\n                if not destination.is_file():\n                    raise PatchForgeError(\n                        f\"Cannot remove created path during rollback: \"\n                        f\"{relative}\"\n                    )\n\n                if isinstance(patched_hash, str):\n                    current_hash = sha256_bytes(\n                        destination.read_bytes()\n                    )\n\n                    if current_hash.lower() != patched_hash.lower():\n                        raise PatchForgeError(\n                            f\"Created file changed after patch; \"\n                            f\"refusing to delete it during rollback: \"\n                            f\"{relative}\"\n                        )\n\n            restore_items.append(\n                (\n                    destination,\n                    None,\n                )\n            )\n\n    for destination, data in restore_items:\n        if data is None:\n            destination.unlink(\n                missing_ok=True\n            )\n        else:\n            atomic_write(\n                destination,\n                data,\n            )\n",
+          "expected_matches": 1
+        }
+      ]
+    }
+  ],
+
+  "verify": [
+    {
+      "type": "command",
+      "name": "Compile Patch Forge backend",
+      "command": "python -m py_compile patchforge.py",
+      "expect_exit": 0
+    }
+  ],
+
+  "options": {
+    "rollback_on_verify_failure": true
+  }
+}

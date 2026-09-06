@@ -1,0 +1,116 @@
+{
+  "version": 2,
+  "name": "Helix v0.1.2 - Fix Patch Forge Runtime",
+  "preflight": [
+    {
+      "type": "sha256",
+      "name": "Check helix.py v0.1.1 baseline",
+      "path": "helix.py",
+      "equals": "1022f68c944144d471f56df50b5b260ca21026cec7fd928d311c37e5cffd6a52"
+    },
+    {
+      "type": "sha256",
+      "name": "Check tests v0.1.1 baseline",
+      "path": "tests/test_helix.py",
+      "equals": "7a80ca3e8fc9da5c48273052f39aa7df7883944c24ffb70a634284403832f10b"
+    },
+    {
+      "type": "sha256",
+      "name": "Check pyproject v0.1.1 baseline",
+      "path": "pyproject.toml",
+      "equals": "c3ddb8222ecfe3fb01fa556b3bd32bbf06e5d8ea51e1810c6512cdb514f7f78e"
+    },
+    {
+      "type": "sha256",
+      "name": "Check README v0.1.1 baseline",
+      "path": "README.md",
+      "equals": "18ef1eace7aae3ebca73db5b1b7e1da55ff912b4980d2a3fe673132a331e3bf8"
+    }
+  ],
+  "files": [
+    {
+      "path": "helix.py",
+      "sha256": "1022f68c944144d471f56df50b5b260ca21026cec7fd928d311c37e5cffd6a52",
+      "edits": [
+        {
+          "op": "replace",
+          "old": "VERSION = \"0.1.1\"",
+          "new": "VERSION = \"0.1.2\"",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "\"rollback_on_verify_failure\": true",
+          "new": "\"rollback_on_verify_failure\": True",
+          "expected_matches": 1
+        }
+      ]
+    },
+    {
+      "path": "pyproject.toml",
+      "sha256": "c3ddb8222ecfe3fb01fa556b3bd32bbf06e5d8ea51e1810c6512cdb514f7f78e",
+      "edits": [
+        {
+          "op": "replace",
+          "old": "version = \"0.1.1\"",
+          "new": "version = \"0.1.2\"",
+          "expected_matches": 1
+        }
+      ]
+    },
+    {
+      "path": "tests/test_helix.py",
+      "sha256": "7a80ca3e8fc9da5c48273052f39aa7df7883944c24ffb70a634284403832f10b",
+      "edits": [
+        {
+          "op": "insert_before",
+          "anchor": "\n\nif __name__ == \"__main__\":\n",
+          "content": "\n    def test_patchforge_apply_edit_builds_valid_python_patch(self):\n        with tempfile.TemporaryDirectory() as tmp:\n            root = Path(tmp)\n            source = root / \"calculator.py\"\n            source.write_text(\"def add(a, b):\\n    return a - b\\n\", encoding=\"utf-8\")\n\n            adapter = helix.PatchForgeAdapter(root, \"\")\n            captured = {}\n\n            def fake_apply(patch, attempt):\n                captured[\"patch\"] = patch\n                captured[\"attempt\"] = attempt\n                return {\"ok\": True}\n\n            adapter.apply = fake_apply\n\n            result = adapter.apply_edit(\n                \"calculator.py\",\n                \"replace\",\n                4,\n                old=\"    return a - b\\n\",\n                new=\"    return a + b\\n\",\n                expected_matches=1,\n            )\n\n            self.assertTrue(result[\"ok\"])\n            self.assertEqual(captured[\"patch\"][\"version\"], 2)\n            self.assertIs(\n                captured[\"patch\"][\"options\"][\"rollback_on_verify_failure\"],\n                True,\n            )\n            self.assertEqual(\n                captured[\"patch\"][\"files\"][0][\"edits\"][0][\"op\"],\n                \"replace\",\n            )\n",
+          "expected_matches": 1
+        }
+      ]
+    },
+    {
+      "path": "README.md",
+      "sha256": "18ef1eace7aae3ebca73db5b1b7e1da55ff912b4980d2a3fe673132a331e3bf8",
+      "edits": [
+        {
+          "op": "replace",
+          "old": "Current version: **v0.1.1**",
+          "new": "Current version: **v0.1.2**",
+          "expected_matches": 1
+        }
+      ]
+    }
+  ],
+  "build": [
+    {
+      "type": "command",
+      "name": "Compile Helix",
+      "command": "python -m py_compile helix.py",
+      "expect_exit": 0,
+      "timeout_seconds": 30
+    }
+  ],
+  "verify": [
+    {
+      "type": "command",
+      "name": "Check resulting diff",
+      "command": "git diff --check",
+      "expect_exit": 0,
+      "timeout_seconds": 30
+    }
+  ],
+  "tests": [
+    {
+      "type": "command",
+      "name": "Run Helix tests",
+      "command": "python -m unittest discover -s tests -v",
+      "expect_exit": 0,
+      "timeout_seconds": 60
+    }
+  ],
+  "options": {
+    "rollback_on_verify_failure": true
+  }
+}

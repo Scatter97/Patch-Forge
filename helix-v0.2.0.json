@@ -1,0 +1,194 @@
+{
+  "version": 2,
+  "name": "Helix v0.2.0 - Interactive CLI and Reliability",
+  "preflight": [
+    {
+      "type": "sha256",
+      "name": "Check helix.py baseline",
+      "path": "helix.py",
+      "equals": "d7de7a9f59194030fd0411170007ad0f97e1e60c58f454acd928ed520e7f8cad"
+    },
+    {
+      "type": "sha256",
+      "name": "Check coder prompt baseline",
+      "path": "prompts/coder.txt",
+      "equals": "1ea08f414299517d029b586b00af0d66432eb3f63f6b3d44e9fdff40fd2e1bba"
+    },
+    {
+      "type": "sha256",
+      "name": "Check tests baseline",
+      "path": "tests/test_helix.py",
+      "equals": "2f86a9b76ca0eab0c223dd53c2dd6f6a54dc3408af929eb876239853c49d452f"
+    },
+    {
+      "type": "sha256",
+      "name": "Check pyproject baseline",
+      "path": "pyproject.toml",
+      "equals": "017297302cbda152cfeba477990314355d01e3f39f87b5587f437130229abbac"
+    },
+    {
+      "type": "sha256",
+      "name": "Check README baseline",
+      "path": "README.md",
+      "equals": "ce598f8a5aa3e8c654fc43cba42635d9670134bce49daa11dfe387af66aa48c5"
+    }
+  ],
+  "files": [
+    {
+      "path": "helix.py",
+      "sha256": "d7de7a9f59194030fd0411170007ad0f97e1e60c58f454acd928ed520e7f8cad",
+      "edits": [
+        {
+          "op": "replace",
+          "old": "VERSION = \"0.1.2\"",
+          "new": "VERSION = \"0.2.0\"",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "    verification_passed: bool = False\n    changed_files: set[str] = field(default_factory=set)",
+          "new": "    verification_passed: bool = False\n    last_verification_command: str = \"\"\n    changed_files: set[str] = field(default_factory=set)",
+          "expected_matches": 1
+        },
+        {
+          "op": "insert_before",
+          "anchor": "\n\nclass Workspace:",
+          "content": "\n\n@dataclass\nclass AgentPermissions:\n    write: bool = True\n    execute: bool = True\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "        ignored = {\".git\", \".helix\", \"__pycache__\", \"node_modules\", \".venv\", \"venv\"}",
+          "new": "        ignored = {\n            \".git\",\n            \".helix\",\n            \".pytest_cache\",\n            \".mypy_cache\",\n            \".ruff_cache\",\n            \".tox\",\n            \".nox\",\n            \"__pycache__\",\n            \"node_modules\",\n            \".venv\",\n            \"venv\",\n            \"dist\",\n            \"build\",\n        }",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "def print_banner(config: HelixConfig, project_root: Path) -> None:\n    main = config.models.get(\"main\")\n    large = config.models.get(\"large\")\n    remote = config.models.get(\"remote\")\n\n    print(\"=\" * 76)\n    print(\"  H E L I X   //   Autonomous Coding Agent\")\n    print(\"=\" * 76)\n    print(f\"  Project : {project_root}\")\n    print(\n        \"  Main    : \"\n        + (f\"{main.provider}/{main.model}\" if main else \"not configured\")\n    )\n    print(\n        \"  Large   : \"\n        + (f\"{large.provider}/{large.model}\" if large else \"not configured\")\n    )\n    print(\n        \"  Remote  : \"\n        + (\n            f\"{remote.provider}/{remote.model}\"\n            if remote and remote.enabled and remote.model\n            else \"disabled\"\n        )\n    )\n    print(\"  Forge   : deterministic source mutations enabled\")\n    print(\"=\" * 76)\n",
+          "new": "class SessionStore:\n    def __init__(self, project_root: Path):\n        self.path = project_root / \".helix\" / \"history.jsonl\"\n        self.path.parent.mkdir(parents=True, exist_ok=True)\n\n    def record(self, *, task: str, status: str, summary: str, steps: int, duration_seconds: float) -> None:\n        entry = {\n            \"time\": int(time.time()),\n            \"task\": task,\n            \"status\": status,\n            \"summary\": summary,\n            \"steps\": steps,\n            \"duration_seconds\": round(duration_seconds, 2),\n        }\n        with self.path.open(\"a\", encoding=\"utf-8\", newline=\"\\n\") as handle:\n            handle.write(json.dumps(entry, ensure_ascii=False) + \"\\n\")\n\n    def recent(self, limit: int = 10) -> list[dict[str, Any]]:\n        if not self.path.exists():\n            return []\n        entries = []\n        for line in self.path.read_text(encoding=\"utf-8\").splitlines():\n            try:\n                value = json.loads(line)\n            except json.JSONDecodeError:\n                continue\n            if isinstance(value, dict):\n                entries.append(value)\n        return entries[-limit:]\n\n\nclass HelixConsole:\n    def __init__(self, config: HelixConfig, project_root: Path, permissions: AgentPermissions):\n        self.config = config\n        self.project_root = project_root\n        self.permissions = permissions\n\n    @staticmethod\n    def model_label(spec: ModelSpec | None) -> str:\n        if not spec or not spec.enabled or not spec.model:\n            return \"disabled\"\n        return f\"{spec.provider}/{spec.model}\"\n\n    def banner(self) -> None:\n        print()\n        print(\"  +--------------------------------------------------------------+\")\n        print(\"  |                         H E L I X                            |\")\n        print(\"  |                  Autonomous Coding Agent                    |\")\n        print(\"  +--------------------------------------------------------------+\")\n        print(f\"  Version   {VERSION}\")\n        print(f\"  Project   {self.project_root}\")\n        print(f\"  Main      {self.model_label(self.config.models.get('main'))}\")\n        print(f\"  Large     {self.model_label(self.config.models.get('large'))}\")\n        print(f\"  Remote    {self.model_label(self.config.models.get('remote'))}\")\n        print(f\"  Forge     {'enabled' if self.config.patchforge_cli else 'not configured'}\")\n        print(f\"  Write     {'allowed' if self.permissions.write else 'READ ONLY'}\")\n        print(f\"  Execute   {'allowed' if self.permissions.execute else 'DISABLED'}\")\n        print(\"  \" + \"-\" * 64)\n\n    def task_start(self, task: str) -> None:\n        print()\n        print(f\"  TASK      {task}\")\n        print(\"  \" + \"-\" * 64)\n\n    def step(self, step: int, role: str, tool: str) -> None:\n        labels = {\n            \"list_files\": \"SCAN\",\n            \"read_file\": \"READ\",\n            \"search_text\": \"SEARCH\",\n            \"hash_file\": \"HASH\",\n            \"create_file\": \"CREATE\",\n            \"patch_file\": \"FORGE\",\n            \"run_command\": \"EXEC\",\n            \"git_diff\": \"DIFF\",\n            \"finish\": \"DONE\",\n        }\n        print(f\"  [{step:03d}] {role.upper():6} {labels.get(tool, tool.upper()):7} {tool}\")\n\n    def result(self, ok: bool, summary: str) -> None:\n        marker = \"PASS\" if ok else \"FAIL\"\n        text = summary.strip()\n        if len(text) > 1200:\n            text = text[:1200] + \"\\n... output truncated ...\"\n        if \"\\n\" not in text:\n            print(f\"        {marker}  {text}\")\n            return\n        print(f\"        {marker}\")\n        for line in text.splitlines():\n            print(f\"        | {line}\")\n\n    def model_error(self, step: int, message: str) -> None:\n        print(f\"  [{step:03d}] MODEL  ERROR  {message}\")\n\n    def complete(self, summary: str, duration_seconds: float) -> None:\n        print(\"  \" + \"-\" * 64)\n        print(f\"  DONE      {summary}\")\n        print(f\"  Duration  {duration_seconds:.2f}s\")\n        print()\n\n    def stopped(self, message: str) -> None:\n        print(\"  \" + \"-\" * 64)\n        print(f\"  STOP      {message}\")\n        print()\n\n    def show_models(self) -> None:\n        for role in (\"small\", \"main\", \"large\", \"remote\"):\n            print(f\"  {role:7} {self.model_label(self.config.models.get(role))}\")\n\n    @staticmethod\n    def show_history(entries: list[dict[str, Any]]) -> None:\n        if not entries:\n            print(\"  No previous Helix tasks for this project.\")\n            return\n        for entry in entries:\n            print(f\"  {str(entry.get('status', '?')).upper():8} {entry.get('steps', '?')} steps   {entry.get('task', '')}\")\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "class HelixAgent:\n    def __init__(self, project_root: Path, config: HelixConfig, prompt_path: Path):\n        self.project_root = project_root.resolve()\n        self.config = config\n        self.workspace = Workspace(self.project_root)\n        self.runner = CommandRunner(self.project_root, config.command_timeout_seconds)\n        self.forge = PatchForgeAdapter(self.project_root, config.patchforge_cli)\n        self.router = ModelRouter(config)\n        self.system_prompt = prompt_path.read_text(encoding=\"utf-8\")",
+          "new": "class HelixAgent:\n    def __init__(self, project_root: Path, config: HelixConfig, prompt_path: Path, permissions: AgentPermissions | None = None):\n        self.project_root = project_root.resolve()\n        self.config = config\n        self.permissions = permissions or AgentPermissions()\n        self.workspace = Workspace(self.project_root)\n        self.runner = CommandRunner(self.project_root, config.command_timeout_seconds)\n        self.forge = PatchForgeAdapter(self.project_root, config.patchforge_cli)\n        self.router = ModelRouter(config)\n        self.system_prompt = prompt_path.read_text(encoding=\"utf-8\")\n        self.console = HelixConsole(config, self.project_root, self.permissions)\n        self.sessions = SessionStore(self.project_root)",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "    def run(self, task: str) -> int:\n        state = AgentState(task=task, project_root=self.project_root)\n        print_banner(self.config, self.project_root)\n        print(f\"  Version : {VERSION}\")\n        print(f\"  Task    : {task}\")\n        print(\"-\" * 76)",
+          "new": "    def run(self, task: str) -> int:\n        state = AgentState(task=task, project_root=self.project_root)\n        started = time.monotonic()\n        self.console.task_start(task)",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "                print(f\"[{step:03d}] {used_role.upper():6} {tool}\")\n                ok, summary = self.execute(tool, args, state)\n                state.add(used_role, tool, ok, summary)\n                print((\"      PASS \" if ok else \"      FAIL \") + summary[:1000])\n                if tool == \"finish\" and ok:\n                    return 0\n            except Exception as exc:\n                state.model_failures += 1\n                state.add(preferred_role, \"agent_error\", False, str(exc))\n                print(f\"[{step:03d}] ERROR  {exc}\")\n\n        print(\"Helix stopped: maximum step count reached.\")\n        return 2",
+          "new": "                self.console.step(step, used_role, tool)\n                ok, summary = self.execute(tool, args, state)\n                state.add(used_role, tool, ok, summary)\n                self.console.result(ok, summary)\n                if tool == \"finish\" and ok:\n                    duration = time.monotonic() - started\n                    self.sessions.record(task=task, status=\"pass\", summary=summary, steps=step, duration_seconds=duration)\n                    self.console.complete(summary, duration)\n                    return 0\n            except Exception as exc:\n                state.model_failures += 1\n                state.add(preferred_role, \"agent_error\", False, str(exc))\n                self.console.model_error(step, str(exc))\n\n        duration = time.monotonic() - started\n        message = \"Maximum step count reached.\"\n        self.sessions.record(task=task, status=\"stopped\", summary=message, steps=self.config.max_steps, duration_seconds=duration)\n        self.console.stopped(message)\n        return 2",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "        if tool == \"create_file\":\n            relative = str(args[\"path\"])\n            digest = self.workspace.create_file(relative, str(args.get(\"content\", \"\")))\n            state.changed_files.add(relative)\n            state.verification_passed = False\n            return True, f\"Created {relative}; sha256={digest}\"",
+          "new": "        if tool == \"create_file\":\n            if not self.permissions.write:\n                return False, \"Write denied: Helix is running in read-only mode.\"\n            relative = str(args[\"path\"])\n            digest = self.workspace.create_file(relative, str(args.get(\"content\", \"\")))\n            state.changed_files.add(relative)\n            state.verification_passed = False\n            state.last_verification_command = \"\"\n            return True, f\"Created {relative}; sha256={digest}\"",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "        if tool == \"patch_file\":\n            relative = str(args[\"path\"])\n            self.workspace.resolve(relative)\n            result = self.forge.apply_edit(\n                relative,\n                str(args[\"op\"]),\n                state.step,\n                old=args.get(\"old\"),\n                new=args.get(\"new\"),\n                anchor=args.get(\"anchor\"),\n                content=args.get(\"content\"),\n                expected_matches=int(args.get(\"expected_matches\", 1)),\n            )\n            if result[\"ok\"]:\n                state.changed_files.add(relative)\n                state.verification_passed = False\n            else:\n                state.coding_failures += 1\n            return bool(result[\"ok\"]), json.dumps(result, indent=2)",
+          "new": "        if tool == \"patch_file\":\n            if not self.permissions.write:\n                return False, \"Write denied: Helix is running in read-only mode.\"\n            relative = str(args[\"path\"])\n            self.workspace.resolve(relative)\n            result = self.forge.apply_edit(\n                relative,\n                str(args[\"op\"]),\n                state.step,\n                old=args.get(\"old\"),\n                new=args.get(\"new\"),\n                anchor=args.get(\"anchor\"),\n                content=args.get(\"content\"),\n                expected_matches=int(args.get(\"expected_matches\", 1)),\n            )\n            if result[\"ok\"]:\n                state.changed_files.add(relative)\n                state.verification_passed = False\n                state.last_verification_command = \"\"\n                return True, f\"Patch applied successfully: {relative}\"\n            state.coding_failures += 1\n            return False, json.dumps(result, indent=2)",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "        if tool == \"run_command\":\n            result = self.runner.run(\n                str(args[\"command\"]),\n                int(args[\"timeout_seconds\"]) if args.get(\"timeout_seconds\") else None\n            )\n            if result[\"ok\"]:\n                if bool(args.get(\"verification\")):\n                    state.verification_passed = True\n                    state.coding_failures = 0\n            else:\n                state.coding_failures += 1\n                if bool(args.get(\"verification\")):\n                    state.verification_passed = False\n            return bool(result[\"ok\"]), json.dumps(result, indent=2)",
+          "new": "        if tool == \"run_command\":\n            if not self.permissions.execute:\n                return False, \"Command execution denied by Helix permissions.\"\n\n            command = str(args[\"command\"])\n            verification = bool(args.get(\"verification\"))\n\n            if (\n                verification\n                and state.verification_passed\n                and state.last_verification_command == command\n            ):\n                return True, f\"Verification already passed; skipped duplicate: {command}\"\n\n            result = self.runner.run(\n                command,\n                int(args[\"timeout_seconds\"]) if args.get(\"timeout_seconds\") else None\n            )\n\n            if result[\"ok\"]:\n                if verification:\n                    state.verification_passed = True\n                    state.last_verification_command = command\n                    state.coding_failures = 0\n\n                    stdout = str(result.get(\"stdout\", \"\")).strip()\n                    last_line = stdout.splitlines()[-1] if stdout else \"\"\n                    suffix = f\" | {last_line}\" if last_line else \"\"\n\n                    return True, f\"{command} -> exit 0{suffix}\"\n\n                return True, json.dumps(result, indent=2)\n\n            state.coding_failures += 1\n\n            if verification:\n                state.verification_passed = False\n                state.last_verification_command = \"\"\n\n            return False, json.dumps(result, indent=2)",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "def build_parser() -> argparse.ArgumentParser:\n    parser = argparse.ArgumentParser(description=\"Helix autonomous coding agent\")\n    parser.add_argument(\"--project\", required=True, help=\"Target project directory\")\n    parser.add_argument(\"--task\", required=True, help=\"Coding task\")\n    parser.add_argument(\n        \"--config\",\n        default=str(Path(__file__).with_name(\"helix.toml\")),\n        help=\"Path to helix.toml\"\n    )\n    return parser\n\n\ndef main() -> int:\n    args = build_parser().parse_args()\n    project = Path(args.project)\n    if not project.exists() or not project.is_dir():\n        print(f\"Project directory does not exist: {project}\", file=sys.stderr)\n        return 2\n\n    config_path = Path(args.config)\n    config = HelixConfig.load(config_path)\n    prompt_path = Path(__file__).parent / \"prompts\" / \"coder.txt\"\n    agent = HelixAgent(project, config, prompt_path)\n    return agent.run(args.task)",
+          "new": "def build_parser() -> argparse.ArgumentParser:\n    parser = argparse.ArgumentParser(description=\"Helix autonomous coding agent\")\n    parser.add_argument(\"--project\", default=\".\", help=\"Target project directory\")\n    parser.add_argument(\"--task\", help=\"Run one task and exit; omit for interactive CLI\")\n    parser.add_argument(\n        \"--config\",\n        default=str(Path(__file__).with_name(\"helix.toml\")),\n        help=\"Path to helix.toml\"\n    )\n    parser.add_argument(\"--read-only\", action=\"store_true\", help=\"Block file creation and source edits\")\n    parser.add_argument(\"--no-exec\", action=\"store_true\", help=\"Block model-requested command execution\")\n    return parser\n\n\ndef interactive_shell(agent: HelixAgent) -> int:\n    print(\"  Commands: :help  :models  :history  :clear  :quit\")\n    print()\n    while True:\n        try:\n            task = input(\"helix> \").strip()\n        except EOFError:\n            print()\n            return 0\n        except KeyboardInterrupt:\n            print(\"\\n  Use :quit to exit Helix.\")\n            continue\n        if not task:\n            continue\n        command = task.lower()\n        if command in {\":quit\", \":exit\"}:\n            return 0\n        if command == \":help\":\n            print(\"  Enter a coding task directly.\")\n            print(\"  :models   Show configured models\")\n            print(\"  :history  Show recent tasks\")\n            print(\"  :clear    Clear the terminal\")\n            print(\"  :quit     Exit Helix\")\n            continue\n        if command == \":models\":\n            agent.console.show_models()\n            continue\n        if command == \":history\":\n            agent.console.show_history(agent.sessions.recent())\n            continue\n        if command == \":clear\":\n            os.system(\"cls\" if os.name == \"nt\" else \"clear\")\n            agent.console.banner()\n            continue\n        if task.startswith(\":\"):\n            print(f\"  Unknown command: {task}\")\n            continue\n        try:\n            agent.run(task)\n        except KeyboardInterrupt:\n            print(\"\\n  Task interrupted by user.\")\n\n\ndef main() -> int:\n    args = build_parser().parse_args()\n    project = Path(args.project)\n    if not project.exists() or not project.is_dir():\n        print(f\"Project directory does not exist: {project}\", file=sys.stderr)\n        return 2\n    config = HelixConfig.load(Path(args.config))\n    prompt_path = Path(__file__).parent / \"prompts\" / \"coder.txt\"\n    permissions = AgentPermissions(\n        write=not args.read_only,\n        execute=not args.no_exec,\n    )\n    agent = HelixAgent(project, config, prompt_path, permissions)\n    agent.console.banner()\n    if args.task:\n        return agent.run(args.task)\n    return interactive_shell(agent)",
+          "expected_matches": 1
+        }
+      ]
+    },
+    {
+      "path": "prompts/coder.txt",
+      "sha256": "1ea08f414299517d029b586b00af0d66432eb3f63f6b3d44e9fdff40fd2e1bba",
+      "edits": [
+        {
+          "op": "insert_before",
+          "anchor": "\nUseful tools include list_files, read_file, search_text, hash_file, create_file, patch_file, run_command, git_diff, and finish.",
+          "content": "\n19. Avoid rereading the same unchanged file repeatedly unless new information requires it.\n20. Once a verification command passes and no files change afterward, do not run the same verification command again.\n21. Prefer the shortest safe sequence of useful actions.\n22. If duplicate verification is skipped, treat verification as still successful.\n23. Do not repeatedly retry an action denied because of permissions.\n",
+          "expected_matches": 1
+        }
+      ]
+    },
+    {
+      "path": "tests/test_helix.py",
+      "sha256": "2f86a9b76ca0eab0c223dd53c2dd6f6a54dc3408af929eb876239853c49d452f",
+      "edits": [
+        {
+          "op": "insert_before",
+          "anchor": "\n\nif __name__ == \"__main__\":",
+          "content": "\n\n    def test_workspace_ignores_pytest_cache(self):\n        with tempfile.TemporaryDirectory() as tmp:\n            root = Path(tmp)\n            (root / \"app.py\").write_text(\"print('ok')\\n\", encoding=\"utf-8\")\n            cache = root / \".pytest_cache\"\n            cache.mkdir()\n            (cache / \"ignored.txt\").write_text(\"ignore\\n\", encoding=\"utf-8\")\n            files = helix.Workspace(root).list_files()\n            self.assertIn(\"app.py\", files)\n            self.assertNotIn(\".pytest_cache/ignored.txt\", files)\n\n    def test_duplicate_verification_is_skipped(self):\n        with tempfile.TemporaryDirectory() as tmp:\n            root = Path(tmp)\n            prompt = root / \"prompt.txt\"\n            prompt.write_text(\"prompt\\n\", encoding=\"utf-8\")\n            config = helix.HelixConfig(\n                patchforge_cli=\"\",\n                max_steps=10,\n                command_timeout_seconds=10,\n                models={\"main\": helix.ModelSpec(\"ollama\", \"main\")},\n            )\n            agent = helix.HelixAgent(root, config, prompt)\n            calls = []\n            def fake_run(command, timeout_seconds=None):\n                calls.append(command)\n                return {\n                    \"ok\": True,\n                    \"exit_code\": 0,\n                    \"stdout\": \"1 passed\\n\",\n                    \"stderr\": \"\",\n                    \"duration_seconds\": 0.01,\n                    \"timed_out\": False,\n                }\n            agent.runner.run = fake_run\n            state = helix.AgentState(task=\"test\", project_root=root)\n            first_ok, _ = agent.execute(\"run_command\", {\"command\": \"pytest -q\", \"verification\": True}, state)\n            second_ok, summary = agent.execute(\"run_command\", {\"command\": \"pytest -q\", \"verification\": True}, state)\n            self.assertTrue(first_ok)\n            self.assertTrue(second_ok)\n            self.assertEqual(calls, [\"pytest -q\"])\n            self.assertIn(\"skipped duplicate\", summary)\n\n    def test_read_only_blocks_create_file(self):\n        with tempfile.TemporaryDirectory() as tmp:\n            root = Path(tmp)\n            prompt = root / \"prompt.txt\"\n            prompt.write_text(\"prompt\\n\", encoding=\"utf-8\")\n            config = helix.HelixConfig(\n                patchforge_cli=\"\",\n                max_steps=10,\n                command_timeout_seconds=10,\n                models={\"main\": helix.ModelSpec(\"ollama\", \"main\")},\n            )\n            agent = helix.HelixAgent(\n                root,\n                config,\n                prompt,\n                helix.AgentPermissions(write=False, execute=True),\n            )\n            state = helix.AgentState(task=\"test\", project_root=root)\n            ok, summary = agent.execute(\"create_file\", {\"path\": \"blocked.py\", \"content\": \"pass\\n\"}, state)\n            self.assertFalse(ok)\n            self.assertIn(\"read-only\", summary.lower())\n            self.assertFalse((root / \"blocked.py\").exists())\n\n    def test_session_history_roundtrip(self):\n        with tempfile.TemporaryDirectory() as tmp:\n            store = helix.SessionStore(Path(tmp))\n            store.record(\n                task=\"Fix tests\",\n                status=\"pass\",\n                summary=\"Passed\",\n                steps=5,\n                duration_seconds=1.25,\n            )\n            history = store.recent()\n            self.assertEqual(len(history), 1)\n            self.assertEqual(history[0][\"task\"], \"Fix tests\")\n            self.assertEqual(history[0][\"status\"], \"pass\")\n",
+          "expected_matches": 1
+        }
+      ]
+    },
+    {
+      "path": "pyproject.toml",
+      "sha256": "017297302cbda152cfeba477990314355d01e3f39f87b5587f437130229abbac",
+      "edits": [
+        {
+          "op": "replace",
+          "old": "version = \"0.1.2\"",
+          "new": "version = \"0.2.0\"",
+          "expected_matches": 1
+        }
+      ]
+    },
+    {
+      "path": "README.md",
+      "sha256": "ce598f8a5aa3e8c654fc43cba42635d9670134bce49daa11dfe387af66aa48c5",
+      "edits": [
+        {
+          "op": "replace",
+          "old": "Current version: **v0.1.2**",
+          "new": "Current version: **v0.2.0**",
+          "expected_matches": 1
+        }
+      ]
+    }
+  ],
+  "build": [
+    {
+      "type": "command",
+      "name": "Compile Helix",
+      "command": "python -m py_compile helix.py",
+      "expect_exit": 0,
+      "timeout_seconds": 30
+    }
+  ],
+  "verify": [
+    {
+      "type": "command",
+      "name": "Check diff",
+      "command": "git diff --check",
+      "expect_exit": 0,
+      "timeout_seconds": 30
+    }
+  ],
+  "tests": [
+    {
+      "type": "command",
+      "name": "Run Helix tests",
+      "command": "python -m unittest discover -s tests -v",
+      "expect_exit": 0,
+      "timeout_seconds": 60
+    }
+  ],
+  "options": {
+    "rollback_on_verify_failure": true
+  }
+}

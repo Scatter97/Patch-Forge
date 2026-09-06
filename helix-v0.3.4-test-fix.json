@@ -1,0 +1,56 @@
+{
+  "version": 2,
+  "name": "Helix v0.3.4 staged read test fix",
+  "preflight": [
+    {
+      "type": "sha256",
+      "name": "Check current tests baseline",
+      "path": "tests/test_helix.py",
+      "equals": "68a2f611ee07a5be6bb078e3678aac8ca7d90cab57b4d038fb8dbb1a75901830"
+    }
+  ],
+  "files": [
+    {
+      "path": "tests/test_helix.py",
+      "sha256": "68a2f611ee07a5be6bb078e3678aac8ca7d90cab57b4d038fb8dbb1a75901830",
+      "edits": [
+        {
+          "op": "replace",
+          "old": "            agent.workspace.create_file_chunk(\n                \"cli.py\",\n                \"print('hello')\\n\",\n                \"begin\",\n            )\n",
+          "new": "            agent.workspace.create_file_chunk(\n                \"cli.py\",\n                \"print('hello')\\n\",\n                \"start\",\n            )\n",
+          "expected_matches": 1
+        }
+      ]
+    }
+  ],
+  "build": [
+    {
+      "type": "command",
+      "name": "Compile Helix",
+      "command": "python -m py_compile helix.py",
+      "expect_exit": 0,
+      "timeout_seconds": 60
+    }
+  ],
+  "verify": [
+    {
+      "type": "command",
+      "name": "Check diff",
+      "command": "git diff --check",
+      "expect_exit": 0,
+      "timeout_seconds": 60
+    }
+  ],
+  "tests": [
+    {
+      "type": "command",
+      "name": "Run Helix tests",
+      "command": "python -m unittest discover -s tests -v",
+      "expect_exit": 0,
+      "timeout_seconds": 120
+    }
+  ],
+  "options": {
+    "rollback_on_verify_failure": true
+  }
+}

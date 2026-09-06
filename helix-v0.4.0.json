@@ -1,0 +1,220 @@
+{
+  "version": 2,
+  "name": "Helix v0.4.0 live TUI and resilient raw generation",
+  "preflight": [
+    {
+      "type": "sha256",
+      "name": "Check helix.py baseline",
+      "path": "helix.py",
+      "equals": "4bc63c916ee0fedeecf7f40f74b5e98a9c175b94182f0f16e0abb52961705e75"
+    },
+    {
+      "type": "sha256",
+      "name": "Check prompts/coder.txt baseline",
+      "path": "prompts/coder.txt",
+      "equals": "802d31262e67cab68a4926c83a19dd69e740b0b63a18d3e2f23887ffb5c0a464"
+    },
+    {
+      "type": "sha256",
+      "name": "Check tests/test_helix.py baseline",
+      "path": "tests/test_helix.py",
+      "equals": "a8f75cb77af6c28487d61212777ec138943fc24285136e1bf888ec26224c8aa7"
+    },
+    {
+      "type": "sha256",
+      "name": "Check pyproject.toml baseline",
+      "path": "pyproject.toml",
+      "equals": "f68d70b3d378295fdd7e204a10b9b3a666fc6f12e9a3f6958f428fe9e7cfb36c"
+    },
+    {
+      "type": "sha256",
+      "name": "Check README.md baseline",
+      "path": "README.md",
+      "equals": "8f2e305b990ab651b0be6cfdb35722e6d1e1aab738be384751ccef8981f76c92"
+    }
+  ],
+  "files": [
+    {
+      "path": "helix.py",
+      "sha256": "4bc63c916ee0fedeecf7f40f74b5e98a9c175b94182f0f16e0abb52961705e75",
+      "edits": [
+        {
+          "op": "replace",
+          "old": "VERSION = \"0.3.7\"\n",
+          "new": "VERSION = \"0.4.0\"\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "insert_after",
+          "anchor": "class HelixError(RuntimeError):\n    pass\n",
+          "content": "\n\nclass RawGenerationError(HelixError):\n    \"\"\"Raised after raw source generation exhausts its own retry budget.\"\"\"\n\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "insert_after",
+          "anchor": "    model_repair_attempts: int = 2\n",
+          "content": "    raw_generation_attempts: int = 2\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "        model_repair_attempts=max(\n            0,\n            int(runtime.get(\"model_repair_attempts\", 2)),\n        ),\n        )\n",
+          "new": "        model_repair_attempts=max(\n            0,\n            int(runtime.get(\"model_repair_attempts\", 2)),\n        ),\n        raw_generation_attempts=max(\n            0,\n            int(runtime.get(\"raw_generation_attempts\", 2)),\n        ),\n        )\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "class ModelRouter:\n    def __init__(self, config: HelixConfig):\n        self.config = config\n        self.last_model_failures = 0\n",
+          "new": "class ModelRouter:\n    def __init__(self, config: HelixConfig):\n        self.config = config\n        self.last_model_failures = 0\n        self.event_sink = None\n\n    def _event(self, kind: str, **data: Any) -> bool:\n        if self.event_sink is None:\n            return False\n        try:\n            return bool(self.event_sink(kind, data))\n        except Exception:\n            return False\n\n    def _model_log(self, role: str, message: str, *, kind: str = \"model\") -> None:\n        handled = self._event(kind, role=role, message=message)\n        if not handled:\n            print(f\"[MODEL] {role} {message}\")\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "    def _complete_raw_content(\n        self,\n        backend: ModelBackend,\n        *,\n        system: str,\n        original_user: str,\n        path: str,\n    ) -> str:\n        prompt = build_raw_content_prompt(\n            original_user=original_user,\n            path=path,\n        )\n\n        raw = interruptible_call(\n            lambda: backend.complete(\n                system,\n                prompt,\n                json_mode=False,\n            )\n        )\n\n        content = raw\n\n        if content.startswith(\"```\"):\n            raise HelixError(\n                \"Raw source generation returned a markdown code fence. \"\n                \"Return literal file content only.\"\n            )\n\n        if not content.strip():\n            raise HelixError(\n                \"Raw source generation returned an empty content body.\"\n            )\n\n        if \"<<<HELIX_CONTENT\" in content or \"\\nHELIX_CONTENT\" in content:\n            raise HelixError(\n                \"Raw source generation must return only literal file content \"\n                \"without HELIX_CONTENT markers.\"\n            )\n\n        if not content.endswith(\"\\n\"):\n            content += \"\\n\"\n\n        if len(content) > self.config.max_create_chunk_chars:\n            raise HelixError(\n                f\"Raw generated chunk is too large: {len(content)} characters. \"\n                f\"Hard maximum is {self.config.max_create_chunk_chars}.\"\n            )\n\n        return content\n",
+          "new": "    @staticmethod\n    def _unwrap_single_markdown_fence(content: str) -> tuple[str, bool]:\n        stripped = content.strip()\n        if not stripped.startswith(\"```\"):\n            return content, False\n        lines = stripped.splitlines()\n        if len(lines) < 3:\n            raise HelixError(\"Raw source generation returned an incomplete markdown fence.\")\n        first = lines[0].strip()\n        last = lines[-1].strip()\n        if not re.fullmatch(r\"```[A-Za-z0-9_+.#-]*\", first):\n            raise HelixError(\"Raw source generation returned an unsupported markdown fence.\")\n        if last != \"```\":\n            raise HelixError(\"Raw source generation returned a markdown fence without a matching closing fence.\")\n        body = \"\\n\".join(lines[1:-1])\n        if \"```\" in body:\n            raise HelixError(\"Raw source generation returned nested or multiple markdown code fences.\")\n        return body, True\n\n    def _validate_raw_content(self, raw: str) -> tuple[str, bool]:\n        content, unwrapped = self._unwrap_single_markdown_fence(raw)\n        if not content.strip():\n            raise HelixError(\"Raw source generation returned an empty content body.\")\n        if \"<<<HELIX_CONTENT\" in content or \"\\nHELIX_CONTENT\" in content:\n            raise HelixError(\"Raw source generation must return only literal file content without HELIX_CONTENT markers.\")\n        if not content.endswith(\"\\n\"):\n            content += \"\\n\"\n        if len(content) > self.config.max_create_chunk_chars:\n            raise HelixError(\n                f\"Raw generated chunk is too large: {len(content)} characters. \"\n                f\"Hard maximum is {self.config.max_create_chunk_chars}. Generate a smaller continuation chunk.\"\n            )\n        return content, unwrapped\n\n    def _complete_raw_content(\n        self,\n        backend: ModelBackend,\n        *,\n        role: str,\n        system: str,\n        original_user: str,\n        path: str,\n    ) -> str:\n        base_prompt = build_raw_content_prompt(original_user=original_user, path=path)\n        max_retries = self.config.raw_generation_attempts\n        retry_error = \"\"\n        retry_raw = \"\"\n        self._event(\"raw_start\", role=role, path=path, max_retries=max_retries)\n        for attempt_index in range(max_retries + 1):\n            prompt = base_prompt\n            if attempt_index:\n                prompt += (\n                    \"\\n\\nRAW GENERATION RETRY\\n\"\n                    f\"Previous raw-body error: {retry_error}\\n\"\n                    \"The append_file_raw action header has ALREADY been accepted. \"\n                    \"Do not return JSON and do not choose another tool. \"\n                    f\"Return only the corrected literal source continuation for {path}. \"\n                    \"Do not use markdown fences. Do not repeat source that is already staged.\"\n                )\n                if retry_raw:\n                    prompt += \"\\nThe previous invalid raw response began with:\\n\" + retry_raw[:500]\n            try:\n                raw = interruptible_call(lambda: backend.complete(system, prompt, json_mode=False))\n            except Exception as exc:\n                retry_error = f\"Raw model request failed: {exc}\"\n            else:\n                try:\n                    content, unwrapped = self._validate_raw_content(raw)\n                    if unwrapped:\n                        self._model_log(\n                            role,\n                            f\"raw source for {path}: automatically removed one outer markdown code fence\",\n                            kind=\"raw_normalized\",\n                        )\n                    self._event(\n                        \"raw_success\",\n                        role=role,\n                        path=path,\n                        characters=len(content),\n                        attempt=attempt_index,\n                    )\n                    return content\n                except Exception as exc:\n                    retry_error = str(exc)\n                    retry_raw = raw\n            if attempt_index < max_retries:\n                retry_number = attempt_index + 1\n                self._model_log(\n                    role,\n                    f\"raw-generation retry {retry_number}/{max_retries} for {path}: {retry_error}\",\n                    kind=\"raw_retry\",\n                )\n        raise RawGenerationError(\n            f\"Raw generation for {path} failed after {max_retries} retry attempt(s): {retry_error}\"\n        )\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "                        raw_content = self._complete_raw_content(\n                            backend,\n                            system=system,\n                            original_user=user,\n                            path=path,\n                        )\n",
+          "new": "                        try:\n                            raw_content = self._complete_raw_content(\n                                backend,\n                                role=candidate,\n                                system=system,\n                                original_user=request_user,\n                                path=path,\n                            )\n                        except RawGenerationError as exc:\n                            self.last_model_failures += 1\n                            final_error = str(exc)\n                            self._model_log(candidate, final_error, kind=\"raw_failure\")\n                            break\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "                    print(f\"[MODEL] {candidate} request failed: {exc}\")\n",
+          "new": "                    self._model_log(candidate, f\"request failed: {exc}\", kind=\"model_failure\")\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "                        print(\n                            f\"[MODEL] {candidate} self-repair \"\n                            f\"{attempt}/{self.config.model_repair_attempts}: {exc}\"\n                        )\n",
+          "new": "                        self._model_log(\n                            candidate,\n                            f\"self-repair {attempt}/{self.config.model_repair_attempts}: {exc}\",\n                            kind=\"model_repair\",\n                        )\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "                    print(\n                        f\"[MODEL] {candidate} unusable after \"\n                        f\"{self.config.model_repair_attempts} repair attempt(s): {exc}\"\n                    )\n",
+          "new": "                    self._model_log(\n                        candidate,\n                        f\"unusable after {self.config.model_repair_attempts} repair attempt(s): {exc}\",\n                        kind=\"model_failure\",\n                    )\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "insert_before",
+          "anchor": "class HelixAgent:\n",
+          "content": "\nclass LiveHelixConsole(HelixConsole):\n    def __init__(self, config, project_root, permissions, mode):\n        super().__init__(config, project_root, permissions)\n        self.mode = mode\n        self.current_role = \"main\"\n        self.current_tool = \"idle\"\n        self.current_state = \"READY\"\n        self.current_step = 0\n        self.stall_score = 0\n        self.active_file = \"\"\n        self.staged_files = {}\n        self.activities = []\n        self.reasoning_summary = \"Waiting for a task.\"\n        self.current_task = \"\"\n        self.forge_status = \"idle\"\n        self.command_status = \"idle\"\n        self.verification_status = \"pending\"\n\n    def _activity(self, text):\n        self.activities.append(text)\n        self.activities = self.activities[-10:]\n\n    @staticmethod\n    def _clip(text, width):\n        text = str(text).replace(\"\\r\", \" \").replace(\"\\n\", \" \")\n        return text if len(text) <= width else text[:width - 3] + \"...\"\n\n    def _render(self):\n        if self.mode != \"tui\":\n            return\n        sys.stdout.write(\"\\x1b[2J\\x1b[H\")\n        print(\"+----------------------------------------------------------------------------+\")\n        print(\"|                                  H E L I X                                 |\")\n        print(\"|                         Autonomous Coding Agent                            |\")\n        print(\"+----------------------------------------------------------------------------+\")\n        print(f\"| v{VERSION:<7} | {self.current_role.upper():<8} | {self.current_state:<18} | Step {self.current_step:03d} | Stall {self.stall_score:<3} |\")\n        print(f\"| Project: {self._clip(self.project_root, 66):<66}         |\")\n        print(\"+----------------------------------------------------------------------------+\")\n        print(\"| ACTIVE WORK                                                                |\")\n        active = self.active_file or \"No active staged file\"\n        print(f\"| {self._clip(active, 74):<74} |\")\n        for path, chars in list(sorted(self.staged_files.items()))[:4]:\n            line = f\"  * {path} - {chars} chars\"\n            print(f\"| {self._clip(line, 74):<74} |\")\n        print(\"+----------------------------------------------------------------------------+\")\n        print(\"| DECISION / STATUS                                                          |\")\n        print(f\"| {self._clip(self.reasoning_summary, 74):<74} |\")\n        print(\"+----------------------------------------------------------------------------+\")\n        print(\"| PIPELINE                                                                   |\")\n        pipe = f\"MODEL {self.current_role.upper()} | FORGE {self.forge_status} | COMMAND {self.command_status} | VERIFY {self.verification_status}\"\n        print(f\"| {self._clip(pipe, 74):<74} |\")\n        print(\"+----------------------------------------------------------------------------+\")\n        print(\"| ACTIVITY                                                                   |\")\n        for item in self.activities[-6:]:\n            print(f\"| {self._clip(item, 74):<74} |\")\n        print(\"+----------------------------------------------------------------------------+\")\n        print(\"| CHAT                                                                       |\")\n        first = next((x.strip() for x in self.current_task.splitlines() if x.strip()), \"Ready\")\n        print(f\"| {self._clip(first, 74):<74} |\")\n        print(\"| helix>                                                                     |\")\n        print(\"+----------------------------------------------------------------------------+\")\n        sys.stdout.flush()\n\n    def banner(self):\n        if self.mode == \"trace\":\n            super().banner()\n            print(\"  Mode      detailed trace\")\n        else:\n            self._render()\n\n    def task_start(self, task):\n        self.current_task = task\n        self.current_state = \"PLANNING\"\n        self.reasoning_summary = \"Analyzing the task and selecting the next action.\"\n        if self.mode == \"trace\":\n            super().task_start(task)\n        else:\n            self._render()\n\n    def step(self, step, role, tool):\n        self.current_step = step\n        self.current_role = role\n        self.current_tool = tool\n        self.current_state = \"WORKING\"\n        self._activity(f\"[{step:03d}] {role.upper()} -> {tool}\")\n        if self.mode == \"trace\":\n            super().step(step, role, tool)\n        else:\n            self._render()\n\n    def result(self, ok, summary):\n        started = re.search(r\"Started staged file:\\s*(.+?)\\s*$\", summary)\n        if started:\n            self.active_file = started.group(1).strip()\n            self.staged_files.setdefault(self.active_file, 0)\n        staged = re.search(r\"Staged\\s+\\d+\\s+(?:raw\\s+)?characters for\\s+(.+?);\\s*(\\d+)\\s+total\", summary)\n        if staged:\n            self.active_file = staged.group(1).strip()\n            self.staged_files[self.active_file] = int(staged.group(2))\n        finished = re.search(r\"Created via Patch Forge:\\s*(.+?);\", summary)\n        if finished:\n            path = finished.group(1).strip()\n            self.staged_files.pop(path, None)\n            if self.active_file == path:\n                self.active_file = \"\"\n        marker = \"PASS\" if ok else \"FAIL\"\n        first = summary.strip().splitlines()[0] if summary.strip() else \"\"\n        self._activity(f\"[{self.current_step:03d}] {marker} {self._clip(first, 50)}\")\n        if not ok:\n            self.current_state = \"RECOVERING\"\n            self.reasoning_summary = \"The last action failed; using its diagnostic to recover.\"\n        if self.mode == \"trace\":\n            super().result(ok, summary)\n        else:\n            self._render()\n\n    def model_error(self, step, message):\n        self.current_step = step\n        self.current_state = \"MODEL ERROR\"\n        self.reasoning_summary = message\n        self._activity(f\"[{step:03d}] MODEL ERROR\")\n        if self.mode == \"trace\":\n            super().model_error(step, message)\n        else:\n            self._render()\n\n    def stall(self, step, message):\n        self.current_step = step\n        self.stall_score += 1\n        self.current_state = \"STALL\"\n        self.reasoning_summary = message\n        self._activity(f\"[{step:03d}] STALL\")\n        if self.mode == \"trace\":\n            super().stall(step, message)\n        else:\n            self._render()\n\n    def escalation(self, step, role, stall_steps):\n        self.current_role = role\n        self.current_state = \"ESCALATING\"\n        self.stall_score = stall_steps\n        self.reasoning_summary = f\"Escalating to {role.upper()} with shared Helix state.\"\n        self._activity(f\"[{step:03d}] ROUTER -> {role.upper()}\")\n        if self.mode == \"trace\":\n            super().escalation(step, role, stall_steps)\n        else:\n            self._render()\n\n    def model_event(self, kind, data):\n        role = str(data.get(\"role\", self.current_role))\n        self.current_role = role\n        message = str(data.get(\"message\", kind))\n        if kind == \"raw_start\":\n            self.current_state = \"GENERATING SOURCE\"\n            self.active_file = str(data.get(\"path\", self.active_file))\n        elif kind == \"raw_retry\":\n            self.current_state = \"RAW RETRY\"\n        elif kind == \"raw_success\":\n            self.current_state = \"SOURCE READY\"\n        elif kind in {\"raw_failure\", \"model_failure\"}:\n            self.current_state = \"MODEL ERROR\"\n        elif kind == \"model_repair\":\n            self.current_state = \"MODEL REPAIR\"\n        self.reasoning_summary = message\n        self._activity(f\"{role.upper()} {kind}: {self._clip(message, 45)}\")\n        if self.mode == \"trace\":\n            print(f\"  [TRACE] {role.upper():6} {kind.upper():16} {message}\")\n        else:\n            self._render()\n        return True\n\n\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "class HelixAgent:\n    def __init__(self, project_root: Path, config: HelixConfig, prompt_path: Path, permissions: AgentPermissions | None = None):\n",
+          "new": "class HelixAgent:\n    def __init__(self, project_root: Path, config: HelixConfig, prompt_path: Path, permissions: AgentPermissions | None = None, output_mode: str = \"compact\"):\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "        self.console = HelixConsole(config, self.project_root, self.permissions)\n",
+          "new": "        if output_mode in {\"trace\", \"tui\"}:\n            self.console = LiveHelixConsole(config, self.project_root, self.permissions, output_mode)\n            self.router.event_sink = self.console.model_event\n        else:\n            self.console = HelixConsole(config, self.project_root, self.permissions)\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "    parser.add_argument(\"--read-only\", action=\"store_true\", help=\"Block file creation and source edits\")\n    parser.add_argument(\"--no-exec\", action=\"store_true\", help=\"Block model-requested command execution\")\n    return parser\n",
+          "new": "    parser.add_argument(\"--read-only\", action=\"store_true\", help=\"Block file creation and source edits\")\n    parser.add_argument(\"--no-exec\", action=\"store_true\", help=\"Block model-requested command execution\")\n    display = parser.add_mutually_exclusive_group()\n    display.add_argument(\"--trace\", action=\"store_true\", help=\"Show detailed scrolling model/tool/runtime activity\")\n    display.add_argument(\"--tui\", action=\"store_true\", help=\"Use the fixed-screen Agent Zero-style live Helix interface\")\n    return parser\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "    agent = HelixAgent(project, config, prompt_path, permissions)\n",
+          "new": "    output_mode = \"tui\" if args.tui else \"trace\" if args.trace else \"compact\"\n    agent = HelixAgent(project, config, prompt_path, permissions, output_mode=output_mode)\n",
+          "expected_matches": 1
+        }
+      ]
+    },
+    {
+      "path": "prompts/coder.txt",
+      "sha256": "802d31262e67cab68a4926c83a19dd69e740b0b63a18d3e2f23887ffb5c0a464",
+      "edits": [
+        {
+          "op": "insert_before",
+          "anchor": "Useful tools include ",
+          "content": "79. append_file_raw is a two-phase operation. Return only the small JSON header during structured action selection.\n\n80. During raw source generation, return literal file content only. Do not wrap it in markdown fences, do not return JSON, and do not include HELIX_CONTENT markers.\n\n81. If Helix reports a raw-generation retry, the append_file_raw action and path are already accepted. Correct only the source body and do not switch tools.\n\n82. Helix may display concise observable decision/status summaries. These are not private chain-of-thought.\n\n",
+          "expected_matches": 1
+        }
+      ]
+    },
+    {
+      "path": "tests/test_helix.py",
+      "sha256": "a8f75cb77af6c28487d61212777ec138943fc24285136e1bf888ec26224c8aa7",
+      "edits": [
+        {
+          "op": "insert_before",
+          "anchor": "    def test_interruptible_call_returns_value(self):\n",
+          "content": "    def test_parser_accepts_trace_mode(self):\n        args = helix.build_parser().parse_args([\"--trace\"])\n        self.assertTrue(args.trace)\n        self.assertFalse(args.tui)\n\n    def test_parser_accepts_tui_mode(self):\n        args = helix.build_parser().parse_args([\"--tui\"])\n        self.assertTrue(args.tui)\n        self.assertFalse(args.trace)\n\n    def test_raw_generation_unwraps_single_markdown_fence(self):\n        config = helix.HelixConfig(\n            patchforge_cli=\"\",\n            max_steps=0,\n            command_timeout_seconds=10,\n            models={\"main\": helix.ModelSpec(\"ollama\", \"main\")},\n        )\n        router = helix.ModelRouter(config)\n        content, unwrapped = router._validate_raw_content(\"```python\\nprint('x')\\n```\\n\")\n        self.assertTrue(unwrapped)\n        self.assertEqual(content, \"print('x')\\n\")\n\n",
+          "expected_matches": 1
+        }
+      ]
+    },
+    {
+      "path": "pyproject.toml",
+      "sha256": "f68d70b3d378295fdd7e204a10b9b3a666fc6f12e9a3f6958f428fe9e7cfb36c",
+      "edits": [
+        {
+          "op": "replace",
+          "old": "version = \"0.3.7\"\n",
+          "new": "version = \"0.4.0\"\n",
+          "expected_matches": 1
+        }
+      ]
+    },
+    {
+      "path": "README.md",
+      "sha256": "8f2e305b990ab651b0be6cfdb35722e6d1e1aab738be384751ccef8981f76c92",
+      "edits": [
+        {
+          "op": "replace",
+          "old": "Current version: **v0.3.7**",
+          "new": "Current version: **v0.4.0**",
+          "expected_matches": 1
+        }
+      ]
+    }
+  ],
+  "build": [
+    {
+      "type": "command",
+      "name": "Compile Helix",
+      "command": "python -m py_compile helix.py",
+      "expect_exit": 0,
+      "timeout_seconds": 60
+    },
+    {
+      "type": "command",
+      "name": "Compile tests",
+      "command": "python -m py_compile tests/test_helix.py",
+      "expect_exit": 0,
+      "timeout_seconds": 60
+    }
+  ],
+  "verify": [
+    {
+      "type": "command",
+      "name": "Check diff",
+      "command": "git diff --check",
+      "expect_exit": 0,
+      "timeout_seconds": 60
+    }
+  ],
+  "tests": [
+    {
+      "type": "command",
+      "name": "Run Helix tests",
+      "command": "python -m unittest discover -s tests -v",
+      "expect_exit": 0,
+      "timeout_seconds": 120,
+      "output_contains": "OK"
+    }
+  ],
+  "options": {
+    "rollback_on_verify_failure": true
+  }
+}

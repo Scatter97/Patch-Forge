@@ -1,0 +1,39 @@
+{
+  "version": 2,
+  "name": "Helix v0.4.11 verification test hotfix",
+  "preflight": [
+    {
+      "type": "sha256",
+      "name": "Check tests baseline",
+      "path": "tests/test_helix.py",
+      "equals": "848f41343de5f6cf0d50717e47d9062c3d75aba891531d50b0fb8a93dc8915d8"
+    }
+  ],
+  "files": [
+    {
+      "path": "tests/test_helix.py",
+      "sha256": "848f41343de5f6cf0d50717e47d9062c3d75aba891531d50b0fb8a93dc8915d8",
+      "edits": [
+        {
+          "op": "replace",
+          "old": "        self.assertIn(\n            \"final verification is now required\",\n            source,\n        )\n",
+          "new": "        self.assertIn(\n            \"POST-FINISH ACTION LOCK: final verification is now \",\n            source,\n        )\n        self.assertIn(\n            \"required. Run exactly\",\n            source,\n        )\n",
+          "expected_matches": 1
+        }
+      ]
+    }
+  ],
+  "tests": [
+    {
+      "type": "command",
+      "name": "Run Helix tests",
+      "command": "python -m unittest discover -s tests -v",
+      "expect_exit": 0,
+      "timeout_seconds": 120,
+      "output_contains": "OK"
+    }
+  ],
+  "options": {
+    "rollback_on_verify_failure": true
+  }
+}

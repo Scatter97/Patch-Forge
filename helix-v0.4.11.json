@@ -1,0 +1,133 @@
+{
+  "version": 2,
+  "name": "Helix v0.4.11 deterministic post-finish verification",
+  "preflight": [
+    {
+      "type": "sha256",
+      "name": "Check helix.py",
+      "path": "helix.py",
+      "equals": "fb765929d97ceed481259918ee75ca4d00f36cf446f18e166f851b4b211d4356"
+    },
+    {
+      "type": "sha256",
+      "name": "Check tests/test_helix.py",
+      "path": "tests/test_helix.py",
+      "equals": "4e7167492ccba469eeb695bbe281f45e7bba495f1cc2098b24036f12617953e2"
+    },
+    {
+      "type": "sha256",
+      "name": "Check pyproject.toml",
+      "path": "pyproject.toml",
+      "equals": "bf73cc99e40b2a19af6343dcbefdbb50d5f39bde8def99670035d8422d06a229"
+    },
+    {
+      "type": "sha256",
+      "name": "Check README.md",
+      "path": "README.md",
+      "equals": "04bce93dee643164007a0781281abfe654d0ed415c3c676bb9e349376f02643f"
+    }
+  ],
+  "files": [
+    {
+      "path": "helix.py",
+      "sha256": "fb765929d97ceed481259918ee75ca4d00f36cf446f18e166f851b4b211d4356",
+      "edits": [
+        {
+          "op": "replace",
+          "old": "VERSION = \"0.4.10\"\n",
+          "new": "VERSION = \"0.4.11\"\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "insert_before",
+          "anchor": "    def _post_finish_requires_test_file(\n",
+          "content": "    @staticmethod\n    def _post_finish_verification_command(\n        state: AgentState,\n    ) -> str:\n        \"\"\"Return an explicit final verification requested by the task.\"\"\"\n        if (\n            not state.post_finish_pending\n            or state.verification_passed\n        ):\n            return \"\"\n\n        task = state.task.lower()\n\n        if \"pytest -q\" in task:\n            return \"pytest -q\"\n\n        if \"pytest\" in task:\n            return \"pytest -q\"\n\n        return \"\"\n\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "        if state.post_finish_pending:\n            # If the original task still requires an automated test file,\n            # force the transition into that concrete next file instead of\n            # allowing repository scans, unrelated reads, or commands.\n            if self._post_finish_requires_test_file(state):\n                return [\n                    entry\n                    for entry in TOOLS\n                    if self._tool_entry_name(entry) == \"begin_file\"\n                ]\n\n            # Otherwise the previous file is complete. Avoid pointless\n",
+          "new": "        if state.post_finish_pending:\n            # If the original task still requires an automated test file,\n            # force the transition into that concrete next file instead of\n            # allowing repository scans, unrelated reads, or commands.\n            if self._post_finish_requires_test_file(state):\n                return [\n                    entry\n                    for entry in TOOLS\n                    if self._tool_entry_name(entry) == \"begin_file\"\n                ]\n\n            verification_command = (\n                self._post_finish_verification_command(state)\n            )\n\n            if verification_command:\n                return [\n                    entry\n                    for entry in TOOLS\n                    if self._tool_entry_name(entry) == \"run_command\"\n                ]\n\n            # Otherwise the previous file is complete. Avoid pointless\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "            return None\n\n        # Reuse the existing post-finish safety rules, but run them before\n        # tool execution so invalid actions do not consume agent steps.\n        return self._post_finish_guard(\n            tool,\n            args,\n            state,\n        )\n",
+          "new": "            return None\n\n        verification_command = (\n            self._post_finish_verification_command(state)\n        )\n\n        if verification_command:\n            proposed_command = str(\n                args.get(\"command\", \"\")\n            ).strip()\n\n            if (\n                tool != \"run_command\"\n                or proposed_command != verification_command\n                or not bool(args.get(\"verification\"))\n            ):\n                return (\n                    \"POST-FINISH ACTION LOCK: final verification is now \"\n                    f\"required. Run exactly {verification_command!r} using \"\n                    \"run_command with verification=true. Do not scan or \"\n                    \"perform unrelated work first.\"\n                )\n\n            return None\n\n        # Reuse the existing post-finish safety rules, but run them before\n        # tool execution so invalid actions do not consume agent steps.\n        return self._post_finish_guard(\n            tool,\n            args,\n            state,\n        )\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "                            break\n\n                        raise HelixError(\n                            \"Model repeatedly violated the \"\n                            f\"{lock_kind} action lock. \"\n                            + lock_error\n                        )\n",
+          "new": "                            break\n\n                        if lock_kind == \"post-finish\":\n                            verification_command = (\n                                self._post_finish_verification_command(\n                                    state\n                                )\n                            )\n\n                            if verification_command:\n                                print(\n                                    \"[CORE] post-finish recovery -> \"\n                                    f\"run_command {verification_command}\"\n                                )\n\n                                tool = \"run_command\"\n                                args = {\n                                    \"command\": verification_command,\n                                    \"verification\": True,\n                                }\n                                action = {\n                                    \"tool\": tool,\n                                    \"args\": args,\n                                }\n                                used_role = \"main\"\n                                break\n\n                        raise HelixError(\n                            \"Model repeatedly violated the \"\n                            f\"{lock_kind} action lock. \"\n                            + lock_error\n                        )\n",
+          "expected_matches": 1
+        }
+      ]
+    },
+    {
+      "path": "tests/test_helix.py",
+      "sha256": "4e7167492ccba469eeb695bbe281f45e7bba495f1cc2098b24036f12617953e2",
+      "edits": [
+        {
+          "op": "insert_before",
+          "anchor": "    def test_staged_action_lock_rejects_unrelated_tool(self):\n",
+          "content": "    def test_post_finish_verification_detects_pytest_q(self):\n        state = helix.AgentState(\n            task=(\n                \"Build an application and use pytest -q \"\n                \"as the final verification.\"\n            ),\n            project_root=Path(\".\"),\n        )\n        state.post_finish_pending = True\n\n        self.assertEqual(\n            helix.HelixAgent._post_finish_verification_command(\n                state\n            ),\n            \"pytest -q\",\n        )\n\n    def test_post_finish_verification_not_requested_after_pass(self):\n        state = helix.AgentState(\n            task=\"Use pytest -q as the final verification.\",\n            project_root=Path(\".\"),\n        )\n        state.post_finish_pending = True\n        state.verification_passed = True\n\n        self.assertEqual(\n            helix.HelixAgent._post_finish_verification_command(\n                state\n            ),\n            \"\",\n        )\n\n    def test_post_finish_recovery_can_force_verification(self):\n        source = Path(helix.__file__).read_text(\n            encoding=\"utf-8\"\n        )\n\n        self.assertIn(\n            \"[CORE] post-finish recovery ->\",\n            source,\n        )\n        self.assertIn(\n            '\"verification\": True',\n            source,\n        )\n        self.assertIn(\n            \"final verification is now required\",\n            source,\n        )\n\n",
+          "expected_matches": 1
+        }
+      ]
+    },
+    {
+      "path": "pyproject.toml",
+      "sha256": "bf73cc99e40b2a19af6343dcbefdbb50d5f39bde8def99670035d8422d06a229",
+      "edits": [
+        {
+          "op": "replace",
+          "old": "version = \"0.4.10\"\n",
+          "new": "version = \"0.4.11\"\n",
+          "expected_matches": 1
+        }
+      ]
+    },
+    {
+      "path": "README.md",
+      "sha256": "04bce93dee643164007a0781281abfe654d0ed415c3c676bb9e349376f02643f",
+      "edits": [
+        {
+          "op": "replace",
+          "old": "Current version: **v0.4.10**",
+          "new": "Current version: **v0.4.11**",
+          "expected_matches": 1
+        }
+      ]
+    }
+  ],
+  "build": [
+    {
+      "type": "command",
+      "name": "Compile Helix",
+      "command": "python -m py_compile helix.py",
+      "expect_exit": 0,
+      "timeout_seconds": 60
+    },
+    {
+      "type": "command",
+      "name": "Compile tests",
+      "command": "python -m py_compile tests/test_helix.py",
+      "expect_exit": 0,
+      "timeout_seconds": 60
+    }
+  ],
+  "tests": [
+    {
+      "type": "command",
+      "name": "Run Helix tests",
+      "command": "python -m unittest discover -s tests -v",
+      "expect_exit": 0,
+      "timeout_seconds": 120,
+      "output_contains": "OK"
+    }
+  ],
+  "options": {
+    "rollback_on_verify_failure": true
+  }
+}

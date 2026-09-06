@@ -1,0 +1,183 @@
+{
+  "version": 2,
+  "name": "Helix v0.3.1 staged-work awareness",
+  "preflight": [
+    {
+      "type": "sha256",
+      "name": "Check helix.py baseline",
+      "path": "helix.py",
+      "equals": "bf7be98bbf15a187dcaab13db318819922dd4bbeb77365a4a8945c40c2f69bcf"
+    },
+    {
+      "type": "sha256",
+      "name": "Check coder prompt baseline",
+      "path": "prompts/coder.txt",
+      "equals": "c6f03ba0aadbe8ccfb3df02a4cf5af8543464b2c4f5a5ed1bbf17ef0ea47aaf4"
+    },
+    {
+      "type": "sha256",
+      "name": "Check tests baseline",
+      "path": "tests/test_helix.py",
+      "equals": "61c7bb03431bf777cc2fadb5d9033d0f25b779fdca55dfd30b2a21b7487cede0"
+    },
+    {
+      "type": "sha256",
+      "name": "Check pyproject baseline",
+      "path": "pyproject.toml",
+      "equals": "6cf3f828632b760234f74f868165557a126939ad29cc0cbd1326330cf8548f8f"
+    },
+    {
+      "type": "sha256",
+      "name": "Check README baseline",
+      "path": "README.md",
+      "equals": "b3992417fdfcd2d12d28ec9bd5c51558758434c1319da60d2a5127c5782b1bc9"
+    }
+  ],
+  "files": [
+    {
+      "path": "helix.py",
+      "sha256": "bf7be98bbf15a187dcaab13db318819922dd4bbeb77365a4a8945c40c2f69bcf",
+      "edits": [
+        {
+          "op": "replace",
+          "old": "VERSION = \"0.3.0\"\n",
+          "new": "VERSION = \"0.3.1\"\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "insert_after",
+          "anchor": "    last_failure_signature: str = \"\"\n",
+          "content": "    staged_files: dict[str, int] = field(default_factory=dict)\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "    def read_file(self, relative: str, start_line: int = 1, end_line: int | None = None) -> str:\n        path = self.resolve(relative)\n        text = path.read_text(encoding=\"utf-8\")\n        lines = text.splitlines()\n        start = max(1, start_line)\n        end = len(lines) if end_line is None else min(len(lines), end_line)\n        if end < start:\n            return \"\"\n        return \"\\n\".join(f\"{i}: {lines[i - 1]}\" for i in range(start, end + 1))\n",
+          "new": "    def read_file(self, relative: str, start_line: int = 1, end_line: int | None = None) -> str:\n        path = self.resolve(relative)\n\n        if not path.is_file():\n            _, stage, normalized = self._staging_path(relative)\n            if stage.is_file():\n                path = stage\n            else:\n                raise HelixError(f\"File does not exist: {normalized}\")\n\n        text = path.read_text(encoding=\"utf-8\")\n        lines = text.splitlines()\n        start = max(1, start_line)\n        end = len(lines) if end_line is None else min(len(lines), end_line)\n        if end < start:\n            return \"\"\n        return \"\\n\".join(f\"{i}: {lines[i - 1]}\" for i in range(start, end + 1))\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "insert_before",
+          "anchor": "    def clear_staged_file(self, relative: str) -> None:\n",
+          "content": "    def staged_file_characters(self, relative: str) -> int | None:\n        _, stage, _ = self._staging_path(relative)\n        if not stage.is_file():\n            return None\n        return len(stage.read_text(encoding=\"utf-8\"))\n\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "insert_before",
+          "anchor": "    def _mark_progress(self, state: AgentState) -> None:\n",
+          "content": "    def _staged_work_instruction(self, state: AgentState) -> str:\n        if not state.staged_files:\n            return \"\"\n\n        items = sorted(state.staged_files.items())\n        details = \", \".join(\n            f\"{path} ({characters} characters)\"\n            for path, characters in items\n        )\n        first_path = items[0][0]\n\n        return (\n            f\"Unfinished staged files: {details}. \"\n            f\"Continue staged work before rescanning. \"\n            f\"For {first_path}, use append_file to add remaining content \"\n            \"or finish_file if the file is complete. \"\n            \"Do not call begin_file again for an already staged file.\"\n        )\n\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "insert_after",
+          "anchor": "                    \"workspace_revision\": state.workspace_revision,\n",
+          "content": "                    \"staged_files\": [\n                        {\n                            \"path\": path,\n                            \"characters\": characters,\n                            \"next_action\": \"append_file or finish_file\",\n                        }\n                        for path, characters in sorted(state.staged_files.items())\n                    ],\n                    \"staged_work_instruction\": self._staged_work_instruction(state),\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "        if tool == \"begin_file\":\n            if not self.permissions.write:\n                return False, \"Write denied: Helix is running in read-only mode.\"\n\n            relative = self.workspace.normalize_relative(str(args[\"path\"]))\n            self.workspace.create_file_chunk(relative, \"\", \"start\")\n            return True, f\"Started staged file: {relative}\"\n\n        if tool == \"append_file\":\n            if not self.permissions.write:\n                return False, \"Write denied: Helix is running in read-only mode.\"\n\n            relative = self.workspace.normalize_relative(str(args[\"path\"]))\n            content = str(args.get(\"content\", \"\"))\n\n            if len(content) > self.config.max_create_chunk_chars:\n                return (\n                    False,\n                    f\"Append payload too large: {len(content)} characters. \"\n                    f\"Hard maximum is {self.config.max_create_chunk_chars}. \"\n                    \"Retry the same append_file action with at most 2500 characters.\",\n                )\n\n            self.workspace.create_file_chunk(\n                relative,\n                content,\n                \"append\",\n            )\n            return True, f\"Staged {len(content)} characters for {relative}.\"\n",
+          "new": "        if tool == \"begin_file\":\n            if not self.permissions.write:\n                return False, \"Write denied: Helix is running in read-only mode.\"\n\n            relative = self.workspace.normalize_relative(str(args[\"path\"]))\n            existing_characters = self.workspace.staged_file_characters(relative)\n\n            if existing_characters is not None:\n                state.staged_files[relative] = existing_characters\n                return True, (\n                    f\"Already staged: {relative} \"\n                    f\"({existing_characters} characters). \"\n                    \"Continue with append_file or finish_file.\"\n                )\n\n            self.workspace.create_file_chunk(relative, \"\", \"start\")\n            state.staged_files[relative] = 0\n            state.workspace_revision += 1\n            state.seen_actions.clear()\n            return True, f\"Started staged file: {relative}\"\n\n        if tool == \"append_file\":\n            if not self.permissions.write:\n                return False, \"Write denied: Helix is running in read-only mode.\"\n\n            relative = self.workspace.normalize_relative(str(args[\"path\"]))\n            content = str(args.get(\"content\", \"\"))\n\n            if len(content) > self.config.max_create_chunk_chars:\n                return (\n                    False,\n                    f\"Append payload too large: {len(content)} characters. \"\n                    f\"Hard maximum is {self.config.max_create_chunk_chars}. \"\n                    \"Retry the same append_file action with at most 2500 characters.\",\n                )\n\n            self.workspace.create_file_chunk(\n                relative,\n                content,\n                \"append\",\n            )\n\n            characters = self.workspace.staged_file_characters(relative)\n            if characters is None:\n                raise HelixError(\n                    f\"Staged file unexpectedly disappeared: {relative}\"\n                )\n\n            state.staged_files[relative] = characters\n            state.workspace_revision += 1\n            state.seen_actions.clear()\n\n            return True, (\n                f\"Staged {len(content)} characters for {relative}; \"\n                f\"{characters} total characters staged.\"\n            )\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "insert_after",
+          "anchor": "            if result[\"ok\"]:\n                self.workspace.clear_staged_file(relative)\n",
+          "content": "                state.staged_files.pop(relative, None)\n",
+          "expected_matches": 1
+        }
+      ]
+    },
+    {
+      "path": "prompts/coder.txt",
+      "sha256": "c6f03ba0aadbe8ccfb3df02a4cf5af8543464b2c4f5a5ed1bbf17ef0ea47aaf4",
+      "edits": [
+        {
+          "op": "insert_before",
+          "anchor": "Useful tools include list_files, read_file, search_text, hash_file, begin_file, append_file, finish_file, patch_file, run_command, git_diff, and finish.\n",
+          "content": "36. Pay close attention to staged_files and staged_work_instruction in the task payload. A staged file exists even though it will not appear in list_files until finish_file succeeds.\n\n37. If a file is already staged, do NOT call begin_file for it again and do NOT rescan just to find it. Continue it with append_file, inspect it with read_file if needed, or complete it with finish_file.\n\n38. read_file may return the current staged contents of a new file before Patch Forge has created the final project file.\n\n",
+          "expected_matches": 1
+        }
+      ]
+    },
+    {
+      "path": "tests/test_helix.py",
+      "sha256": "61c7bb03431bf777cc2fadb5d9033d0f25b779fdca55dfd30b2a21b7487cede0",
+      "edits": [
+        {
+          "op": "insert_before",
+          "anchor": "    def test_interruptible_call_returns_value(self):\n",
+          "content": "    def test_read_file_reads_staged_contents(self):\n        with tempfile.TemporaryDirectory() as tmp:\n            root = Path(tmp)\n            workspace = helix.Workspace(root)\n\n            workspace.create_file_chunk(\n                \"new.py\",\n                \"print('staged')\\n\",\n                \"start\",\n            )\n\n            result = workspace.read_file(\"new.py\")\n\n            self.assertIn(\"print('staged')\", result)\n            self.assertFalse((root / \"new.py\").exists())\n\n    def test_begin_file_is_idempotent(self):\n        with tempfile.TemporaryDirectory() as tmp:\n            root = Path(tmp)\n            prompt = root / \"prompt.txt\"\n            prompt.write_text(\"prompt\\n\", encoding=\"utf-8\")\n\n            config = helix.HelixConfig(\n                patchforge_cli=\"\",\n                max_steps=0,\n                command_timeout_seconds=10,\n                models={\"main\": helix.ModelSpec(\"ollama\", \"main\")},\n            )\n\n            agent = helix.HelixAgent(root, config, prompt)\n            state = helix.AgentState(task=\"test\", project_root=root)\n\n            first_ok, _ = agent.execute(\n                \"begin_file\",\n                {\"path\": \"app.py\"},\n                state,\n            )\n            revision_after_first = state.workspace_revision\n\n            second_ok, summary = agent.execute(\n                \"begin_file\",\n                {\"path\": \"app.py\"},\n                state,\n            )\n\n            self.assertTrue(first_ok)\n            self.assertTrue(second_ok)\n            self.assertIn(\"Already staged\", summary)\n            self.assertEqual(state.staged_files[\"app.py\"], 0)\n            self.assertEqual(\n                state.workspace_revision,\n                revision_after_first,\n            )\n\n    def test_append_file_updates_staged_state_and_progress(self):\n        with tempfile.TemporaryDirectory() as tmp:\n            root = Path(tmp)\n            prompt = root / \"prompt.txt\"\n            prompt.write_text(\"prompt\\n\", encoding=\"utf-8\")\n\n            config = helix.HelixConfig(\n                patchforge_cli=\"\",\n                max_steps=0,\n                command_timeout_seconds=10,\n                models={\"main\": helix.ModelSpec(\"ollama\", \"main\")},\n            )\n\n            agent = helix.HelixAgent(root, config, prompt)\n            state = helix.AgentState(task=\"test\", project_root=root)\n\n            agent.execute(\n                \"begin_file\",\n                {\"path\": \"app.py\"},\n                state,\n            )\n\n            revision_before_append = state.workspace_revision\n            state.seen_actions.add(\"old-action\")\n\n            ok, summary = agent.execute(\n                \"append_file\",\n                {\n                    \"path\": \"app.py\",\n                    \"content\": \"print('hello')\\n\",\n                },\n                state,\n            )\n\n            self.assertTrue(ok)\n            self.assertEqual(\n                state.staged_files[\"app.py\"],\n                len(\"print('hello')\\n\"),\n            )\n            self.assertGreater(\n                state.workspace_revision,\n                revision_before_append,\n            )\n            self.assertEqual(state.seen_actions, set())\n            self.assertIn(\"total characters staged\", summary)\n\n    def test_staged_work_instruction_reports_unfinished_file(self):\n        with tempfile.TemporaryDirectory() as tmp:\n            root = Path(tmp)\n            prompt = root / \"prompt.txt\"\n            prompt.write_text(\"prompt\\n\", encoding=\"utf-8\")\n\n            config = helix.HelixConfig(\n                patchforge_cli=\"\",\n                max_steps=0,\n                command_timeout_seconds=10,\n                models={\"main\": helix.ModelSpec(\"ollama\", \"main\")},\n            )\n\n            agent = helix.HelixAgent(root, config, prompt)\n            state = helix.AgentState(task=\"test\", project_root=root)\n            state.staged_files[\"storage.py\"] = 1234\n\n            guidance = agent._staged_work_instruction(state)\n\n            self.assertIn(\"storage.py\", guidance)\n            self.assertIn(\"1234 characters\", guidance)\n            self.assertIn(\"append_file\", guidance)\n            self.assertIn(\"finish_file\", guidance)\n            self.assertIn(\"Do not call begin_file again\", guidance)\n\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "            self.assertIn(\"Created via Patch Forge\", summary)\n            self.assertTrue((root / \"src\" / \"app.py\").exists())\n",
+          "new": "            self.assertIn(\"Created via Patch Forge\", summary)\n            self.assertTrue((root / \"src\" / \"app.py\").exists())\n            self.assertNotIn(\"src/app.py\", state.staged_files)\n",
+          "expected_matches": 1
+        }
+      ]
+    },
+    {
+      "path": "pyproject.toml",
+      "sha256": "6cf3f828632b760234f74f868165557a126939ad29cc0cbd1326330cf8548f8f",
+      "edits": [
+        {
+          "op": "replace",
+          "old": "version = \"0.3.0\"\n",
+          "new": "version = \"0.3.1\"\n",
+          "expected_matches": 1
+        }
+      ]
+    },
+    {
+      "path": "README.md",
+      "sha256": "b3992417fdfcd2d12d28ec9bd5c51558758434c1319da60d2a5127c5782b1bc9",
+      "edits": [
+        {
+          "op": "replace",
+          "old": "Current version: **v0.3.0**",
+          "new": "Current version: **v0.3.1**",
+          "expected_matches": 1
+        },
+        {
+          "op": "insert_after",
+          "anchor": "This also prevents models from needing to place an entire large source file inside a single `create_file` JSON action. Every new file, even a small one, uses the staged begin/append/finish protocol.\n",
+          "content": "\n\n## Staged-work awareness in v0.3.1\n\nHelix now treats unfinished staged files as first-class agent state. `begin_file` and `append_file` update the workspace revision and staged-file metadata so useful staging work is not mistaken for lack of progress.\n\nThe model payload includes each unfinished staged file, its current character count, and explicit guidance to continue with `append_file` or `finish_file` instead of rescanning the repository.\n\nCalling `begin_file` for an already staged path is idempotent: Helix preserves the staged contents and tells the model to continue rather than treating the action as a failure.\n\n`read_file` can also read the contents of `.helix/staging` when the final project file does not yet exist. After Patch Forge successfully creates the final file, the staged entry is removed from agent state.\n",
+          "expected_matches": 1
+        }
+      ]
+    }
+  ],
+  "build": [
+    {
+      "type": "command",
+      "name": "Compile Helix",
+      "command": "python -m py_compile helix.py",
+      "expect_exit": 0,
+      "timeout_seconds": 60
+    }
+  ],
+  "verify": [
+    {
+      "type": "command",
+      "name": "Check resulting diff",
+      "command": "git diff --check",
+      "expect_exit": 0,
+      "timeout_seconds": 60
+    }
+  ],
+  "tests": [
+    {
+      "type": "command",
+      "name": "Run Helix tests",
+      "command": "python -m unittest discover -s tests -v",
+      "expect_exit": 0,
+      "timeout_seconds": 120,
+      "output_contains": "OK"
+    }
+  ],
+  "options": {
+    "rollback_on_verify_failure": true
+  }
+}

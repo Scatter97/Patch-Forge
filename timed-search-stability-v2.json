@@ -1,0 +1,49 @@
+{
+  "version": 2,
+  "name": "KnightBot Timed Search Stability Fix",
+  "preflight": [
+    {
+      "type": "sha256",
+      "name": "Check search.cpp baseline",
+      "path": "src/search.cpp",
+      "equals": "b20a4ff611d117710a3387f79cc0a02fde7459cf415ef3ce7bf398788ed1122b"
+    },
+    {
+      "type": "command",
+      "name": "Check existing diff whitespace",
+      "command": "git diff --check",
+      "expect_exit": 0
+    }
+  ],
+  "files": [
+    {
+      "path": "src/search.cpp",
+      "sha256": "b20a4ff611d117710a3387f79cc0a02fde7459cf415ef3ce7bf398788ed1122b",
+      "edits": [
+        {
+          "op": "replace",
+          "old": "                bestCompleted =\n                    current;\n\n                previousScore =\n                    current.score;",
+          "new": "                if (\n                    bestCompleted.depth > 0 &&\n                    current.hasMove &&\n                    bestCompleted.hasMove &&\n                    sameMove(\n                        current.bestMove,\n                        bestCompleted.bestMove\n                    )\n                    ) {\n                    ++stableBestMoveDepths;\n                }\n                else {\n                    stableBestMoveDepths = 0;\n                }\n\n                if (\n                    bestCompleted.depth > 0 &&\n                    current.score == previousScore\n                    ) {\n                    ++stableScoreDepths;\n                }\n                else {\n                    stableScoreDepths = 0;\n                }\n\n                bestCompleted =\n                    current;\n\n                previousScore =\n                    current.score;",
+          "expected_matches": 1
+        }
+      ]
+    }
+  ],
+  "verify": [
+    {
+      "type": "command",
+      "name": "Check resulting diff whitespace",
+      "command": "git diff --check",
+      "expect_exit": 0
+    },
+    {
+      "type": "command",
+      "name": "Verify stability logic exists",
+      "command": "python -c \"from pathlib import Path; t=Path(r'src/search.cpp').read_text(encoding='utf-8'); assert '++stableBestMoveDepths' in t; assert '++stableScoreDepths' in t; assert 'current.score == previousScore' in t; assert 'sameMove(' in t\"",
+      "expect_exit": 0
+    }
+  ],
+  "options": {
+    "rollback_on_verify_failure": true
+  }
+}

@@ -1,0 +1,34 @@
+{
+    "files":  [
+                  {
+                      "path":  "package.json",
+                      "sha256":  "8289756776eef5d77fa82461c3c3cd0220476cffcb8278b35334c4103331007a",
+                      "edits":  [
+                                    {
+                                        "expected_matches":  1,
+                                        "new":  "\"version\": \"0.1.1\"",
+                                        "op":  "replace",
+                                        "old":  "\"version\": \"0.1.0\""
+                                    },
+                                    {
+                                        "expected_matches":  1,
+                                        "new":  "\"win\": {\n      \"target\": \"nsis\",\n      \"icon\": \"build/icon.svg\"\n    }",
+                                        "op":  "replace",
+                                        "old":  "\"win\": {\n      \"target\": \"nsis\"\n    }"
+                                    }
+                                ]
+                  },
+                  {
+                      "path":  "build/icon.svg",
+                      "content":  "\u003csvg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 1024 1024\"\u003e\n  \u003cdefs\u003e\n    \u003clinearGradient id=\"bg\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"1\"\u003e\n      \u003cstop offset=\"0%\" stop-color=\"#0866ff\"/\u003e\n      \u003cstop offset=\"55%\" stop-color=\"#5965f2\"/\u003e\n      \u003cstop offset=\"100%\" stop-color=\"#9b4dff\"/\u003e\n    \u003c/linearGradient\u003e\n\n    \u003clinearGradient id=\"shine\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"1\"\u003e\n      \u003cstop offset=\"0%\" stop-color=\"#ffffff\"/\u003e\n      \u003cstop offset=\"100%\" stop-color=\"#e9e9ff\"/\u003e\n    \u003c/linearGradient\u003e\n  \u003c/defs\u003e\n\n  \u003crect\n    x=\"64\"\n    y=\"64\"\n    width=\"896\"\n    height=\"896\"\n    rx=\"220\"\n    fill=\"url(#bg)\"\n  /\u003e\n\n  \u003cpath\n    d=\"M273 695\n       V329\n       C273 300 293 282 320 282\n       C344 282 362 294 376 319\n       L512 557\n       L648 319\n       C662 294 680 282 704 282\n       C731 282 751 300 751 329\n       V695\n       C751 727 732 744 704 744\n       C676 744 658 726 658 695\n       V470\n       L559 642\n       C548 661 533 671 512 671\n       C491 671 476 661 465 642\n       L366 470\n       V695\n       C366 726 348 744 320 744\n       C292 744 273 727 273 695Z\"\n    fill=\"url(#shine)\"\n  /\u003e\n\n  \u003cpath\n    d=\"M792 205\n       L809 255\n       L859 272\n       L809 289\n       L792 339\n       L775 289\n       L725 272\n       L775 255Z\"\n    fill=\"#ffffff\"\n    opacity=\"0.95\"\n  /\u003e\n\u003c/svg\u003e",
+                      "action":  "create"
+                  }
+              ],
+    "name":  "meta-ai-desktop-v0.1.1",
+    "version":  2,
+    "verify":  [
+                   "node --check main.js",
+                   "node -e \"const p=require(\u0027./package.json\u0027); if(p.version !== \u00270.1.1\u0027) process.exit(1); if(p.build.win.icon !== \u0027build/icon.svg\u0027) process.exit(1); console.log(\u0027package.json OK\u0027);\"",
+                   "powershell -NoProfile -Command \"if (!(Test-Path \u0027build/icon.svg\u0027)) { Write-Error \u0027Missing build/icon.svg\u0027; exit 1 }; Write-Host \u0027Icon OK\u0027\""
+               ]
+}

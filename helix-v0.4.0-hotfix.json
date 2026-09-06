@@ -1,0 +1,48 @@
+{
+  "version": 2,
+  "name": "Helix v0.4.0 raw role compatibility hotfix",
+  "preflight": [
+    {
+      "type": "sha256",
+      "name": "Check helix.py baseline",
+      "path": "helix.py",
+      "equals": "47cff02abd66709cb6aa12821e1721dc0fdea2c2ace8a8a5457e9fca2f13cedf"
+    }
+  ],
+  "files": [
+    {
+      "path": "helix.py",
+      "sha256": "47cff02abd66709cb6aa12821e1721dc0fdea2c2ace8a8a5457e9fca2f13cedf",
+      "edits": [
+        {
+          "op": "replace",
+          "old": "    def _complete_raw_content(\n        self,\n        backend: ModelBackend,\n        *,\n        role: str,\n        system: str,\n",
+          "new": "    def _complete_raw_content(\n        self,\n        backend: ModelBackend,\n        *,\n        role: str = \"main\",\n        system: str,\n",
+          "expected_matches": 1
+        }
+      ]
+    }
+  ],
+  "build": [
+    {
+      "type": "command",
+      "name": "Compile Helix",
+      "command": "python -m py_compile helix.py",
+      "expect_exit": 0,
+      "timeout_seconds": 60
+    }
+  ],
+  "tests": [
+    {
+      "type": "command",
+      "name": "Run Helix tests",
+      "command": "python -m unittest discover -s tests -v",
+      "expect_exit": 0,
+      "timeout_seconds": 120,
+      "output_contains": "OK"
+    }
+  ],
+  "options": {
+    "rollback_on_verify_failure": true
+  }
+}

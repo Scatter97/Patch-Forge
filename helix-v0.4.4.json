@@ -1,0 +1,163 @@
+{
+  "version": 2,
+  "name": "Helix v0.4.4 Windows UTF-8 and finish recovery",
+  "preflight": [
+    {
+      "type": "sha256",
+      "name": "Check helix.py",
+      "path": "helix.py",
+      "equals": "07f096613a1a519bae43b33ae36d77be762fc386b5bd20fa28a095b08e844da4"
+    },
+    {
+      "type": "sha256",
+      "name": "Check tests/test_helix.py",
+      "path": "tests/test_helix.py",
+      "equals": "992da4c6304cde33472884a42739bd2ad2d8bfbc044ea46fa73ed455457dd826"
+    },
+    {
+      "type": "sha256",
+      "name": "Check pyproject.toml",
+      "path": "pyproject.toml",
+      "equals": "012576265ed5dbfa9203114ef059493f862511eb2195f678c41d8b46bc2eb746"
+    },
+    {
+      "type": "sha256",
+      "name": "Check README.md",
+      "path": "README.md",
+      "equals": "65b9bbbf511fcd5bb6be0f7557965a6a957532ef1e59ea0f8c1b897436589b6a"
+    },
+    {
+      "type": "sha256",
+      "name": "Check benchmarks/todo.json",
+      "path": "benchmarks/todo.json",
+      "equals": "c8afecade540e1eb11942b7354f18d451d11386178ebfd751f524cbbce27472d"
+    }
+  ],
+  "files": [
+    {
+      "path": "helix.py",
+      "sha256": "07f096613a1a519bae43b33ae36d77be762fc386b5bd20fa28a095b08e844da4",
+      "edits": [
+        {
+          "op": "replace",
+          "old": "VERSION = \"0.4.3\"\n",
+          "new": "VERSION = \"0.4.4\"\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "insert_after",
+          "anchor": "    def available(self) -> bool:\n        return bool(self.patchforge_cli and self.patchforge_cli.exists())\n",
+          "content": "\n    @staticmethod\n    def infrastructure_failure(result: dict[str, Any]) -> bool:\n        combined = \"\\n\".join(\n            str(result.get(key, \"\"))\n            for key in (\n                \"stdout\",\n                \"stderr\",\n                \"check_output\",\n                \"error\",\n            )\n        ).lower()\n\n        markers = (\n            \"unicodeencodeerror\",\n            \"charmap\",\n            \"cp1252\",\n            \"codec can't encode\",\n            \"codec cannot encode\",\n        )\n        return any(marker in combined for marker in markers)\n\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "insert_before",
+          "anchor": "        check = subprocess.run(\n            base + [\"check\", str(patch_path)],\n",
+          "content": "        subprocess_env = os.environ.copy()\n        subprocess_env[\"PYTHONUTF8\"] = \"1\"\n        subprocess_env[\"PYTHONIOENCODING\"] = \"utf-8\"\n\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "        check = subprocess.run(\n            base + [\"check\", str(patch_path)],\n            cwd=self.patchforge_cli.parent,\n            capture_output=True,\n            text=True,\n        )\n",
+          "new": "        check = subprocess.run(\n            base + [\"check\", str(patch_path)],\n            cwd=self.patchforge_cli.parent,\n            capture_output=True,\n            text=True,\n            encoding=\"utf-8\",\n            errors=\"replace\",\n            env=subprocess_env,\n        )\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "        apply = subprocess.run(\n            base + [\"apply\", str(patch_path)],\n            cwd=self.patchforge_cli.parent,\n            capture_output=True,\n            text=True,\n        )\n",
+          "new": "        apply = subprocess.run(\n            base + [\"apply\", str(patch_path)],\n            cwd=self.patchforge_cli.parent,\n            capture_output=True,\n            text=True,\n            encoding=\"utf-8\",\n            errors=\"replace\",\n            env=subprocess_env,\n        )\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "    def escalation(self, step: int, role: str, stall_steps: int) -> None:\n        print(\n            f\"  [{step:03d}] ROUTER ESCALATE -> {role.upper()} \"\n            f\"(stall score {stall_steps})\"\n        )\n",
+          "new": "    def escalation(self, step: int, role: str, stall_steps: int) -> None:\n        alternate_available = any(\n            (\n                spec\n                and spec.enabled\n                and spec.model\n            )\n            for name, spec in self.config.models.items()\n            if name in {\"large\", \"remote\"}\n        )\n\n        if role == \"main\" and not alternate_available:\n            print(\n                f\"  [{step:03d}] ROUTER HOLD -> MAIN \"\n                f\"(stall score {stall_steps}; no fallback available)\"\n            )\n            return\n\n        print(\n            f\"  [{step:03d}] ROUTER ESCALATE -> {role.upper()} \"\n            f\"(stall score {stall_steps})\"\n        )\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "insert_after",
+          "anchor": "            result = self.forge.create_file(\n                relative,\n                assembled,\n                state.step,\n            )\n",
+          "content": "\n            if (\n                not result[\"ok\"]\n                and self.forge.infrastructure_failure(result)\n            ):\n                print(\n                    f\"[FORGE] Infrastructure/output encoding failure while \"\n                    f\"creating {relative}; retrying once with UTF-8.\"\n                )\n                result = self.forge.create_file(\n                    relative,\n                    assembled,\n                    state.step,\n                )\n",
+          "expected_matches": 1
+        }
+      ]
+    },
+    {
+      "path": "tests/test_helix.py",
+      "sha256": "992da4c6304cde33472884a42739bd2ad2d8bfbc044ea46fa73ed455457dd826",
+      "edits": [
+        {
+          "op": "insert_before",
+          "anchor": "    def test_interruptible_call_returns_value(self):\n",
+          "content": "    def test_patchforge_detects_windows_encoding_failure(self):\n        result = {\n            \"ok\": False,\n            \"stderr\": (\n                \"UnicodeEncodeError: 'charmap' codec can't encode \"\n                \"character using cp1252\"\n            ),\n        }\n\n        self.assertTrue(\n            helix.PatchForgeAdapter.infrastructure_failure(result)\n        )\n\n    def test_patchforge_normal_failure_is_not_infrastructure_failure(self):\n        result = {\n            \"ok\": False,\n            \"stderr\": \"Patch anchor did not match.\",\n        }\n\n        self.assertFalse(\n            helix.PatchForgeAdapter.infrastructure_failure(result)\n        )\n\n",
+          "expected_matches": 1
+        }
+      ]
+    },
+    {
+      "path": "pyproject.toml",
+      "sha256": "012576265ed5dbfa9203114ef059493f862511eb2195f678c41d8b46bc2eb746",
+      "edits": [
+        {
+          "op": "replace",
+          "old": "version = \"0.4.3\"\n",
+          "new": "version = \"0.4.4\"\n",
+          "expected_matches": 1
+        }
+      ]
+    },
+    {
+      "path": "README.md",
+      "sha256": "65b9bbbf511fcd5bb6be0f7557965a6a957532ef1e59ea0f8c1b897436589b6a",
+      "edits": [
+        {
+          "op": "replace",
+          "old": "Current version: **v0.4.3**",
+          "new": "Current version: **v0.4.4**",
+          "expected_matches": 1
+        }
+      ]
+    },
+    {
+      "path": "benchmarks/todo.json",
+      "sha256": "c8afecade540e1eb11942b7354f18d451d11386178ebfd751f524cbbce27472d",
+      "edits": [
+        {
+          "op": "replace",
+          "old": "{\n  \"name\": \"todo-cli\",\n  \"task\": \"Build a complete Python command-line todo application from scratch.\\\\n\\\\nRequirements:\\\\n- Store todos persistently in a JSON file.\\\\n- Support add, list, done, and delete commands.\\\\n- Each todo must have a numeric ID, text, and completed state.\\\\n- The list command must clearly show completed and incomplete tasks.\\\\n- Add automated tests using pytest.\\\\n- Do not stop until the application works and all tests pass.\\\\n- Use pytest -q as the final verification.\",\n  \"setup_files\": {},\n  \"verification_command\": \"pytest -q\"\n}\n",
+          "new": "{\n  \"name\": \"todo-cli\",\n  \"task\": \"Build a complete Python command-line todo application from scratch.\\n\\nRequirements:\\n- Store todos persistently in a JSON file.\\n- Support add, list, done, and delete commands.\\n- Each todo must have a numeric ID, text, and completed state.\\n- The list command must clearly show completed and incomplete tasks.\\n- Add automated tests using pytest.\\n- Do not stop until the application works and all tests pass.\\n- Use pytest -q as the final verification.\",\n  \"setup_files\": {},\n  \"verification_command\": \"pytest -q\"\n}\n",
+          "expected_matches": 1
+        }
+      ]
+    }
+  ],
+  "build": [
+    {
+      "type": "command",
+      "name": "Compile Helix",
+      "command": "python -m py_compile helix.py",
+      "expect_exit": 0,
+      "timeout_seconds": 60
+    },
+    {
+      "type": "command",
+      "name": "Compile tests",
+      "command": "python -m py_compile tests/test_helix.py",
+      "expect_exit": 0,
+      "timeout_seconds": 60
+    }
+  ],
+  "tests": [
+    {
+      "type": "command",
+      "name": "Run Helix tests",
+      "command": "python -m unittest discover -s tests -v",
+      "expect_exit": 0,
+      "timeout_seconds": 120,
+      "output_contains": "OK"
+    }
+  ],
+  "options": {
+    "rollback_on_verify_failure": true
+  }
+}

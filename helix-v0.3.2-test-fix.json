@@ -1,0 +1,54 @@
+{
+  "version": 2,
+  "name": "Helix v0.3.2 test compatibility fix",
+  "preflight": [
+    {
+      "type": "sha256",
+      "name": "Check current test baseline",
+      "path": "tests/test_helix.py",
+      "equals": "92f99998b62125b102affc77079d37dc28701381e5595c045cefdd3ff3778565"
+    }
+  ],
+  "files": [
+    {
+      "path": "tests/test_helix.py",
+      "sha256": "92f99998b62125b102affc77079d37dc28701381e5595c045cefdd3ff3778565",
+      "edits": [
+        {
+          "op": "insert_after",
+          "anchor": "import tempfile\n",
+          "content": "import json\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "        ok, summary = agent.execute(\"create_file\", {\"path\": \"blocked.py\", \"content\": \"pass\\n\"}, state)\n",
+          "new": "        ok, summary = agent.execute(\n            \"begin_file\",\n            {\"path\": \"blocked.py\"},\n            state,\n        )\n",
+          "expected_matches": 1
+        }
+      ]
+    }
+  ],
+  "build": [
+    {
+      "type": "command",
+      "name": "Compile Helix",
+      "command": "python -m py_compile helix.py",
+      "expect_exit": 0,
+      "timeout_seconds": 60
+    }
+  ],
+  "tests": [
+    {
+      "type": "command",
+      "name": "Run Helix tests",
+      "command": "python -m unittest discover -s tests -v",
+      "expect_exit": 0,
+      "timeout_seconds": 120,
+      "output_contains": "OK"
+    }
+  ],
+  "options": {
+    "rollback_on_verify_failure": true
+  }
+}

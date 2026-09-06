@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "name": "KnightBot QSearch Patch 1",
+  "files": [
+    {
+      "path": "src/search.cpp",
+      "sha256": "db5757ba299cbc93c9d26737758b2965725f5a32f02eb013e326932d82c013ec",
+      "edits": [
+        {
+          "op": "insert_before",
+          "anchor": "        int moveOrderScore(\n            const Position& pos,\n            const Move& move,\n            const Move* ttMove,\n            int ply\n        ) {",
+          "content": "        bool qsearchCaptureCannotHaveNegativeSee(\n            const Position& pos,\n            const Move& move,\n            char capturedPiece\n        ) {\n            if (\n                move.promotion ||\n                capturedPiece == '.'\n                ) {\n                return false;\n            }\n\n            const char movingPiece =\n                pos.board[\n                    move.from\n                ];\n\n            if (\n                movingPiece == '.'\n                ) {\n                return false;\n            }\n\n            const int targetRank =\n                rankOf(\n                    move.to\n                );\n\n            if (\n                targetRank == 0 ||\n                targetRank == 7\n                ) {\n                return false;\n            }\n\n            return\n                pieceValue(\n                    capturedPiece\n                )\n                >=\n                pieceValue(\n                    movingPiece\n                );\n        }\n\n\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "                if (\n                    !capture &&\n                    !move.promotion\n                    ) {\n                    continue;\n                }\n\n                if (\n                    capture &&\n                    !move.promotion\n                    ) {\n                    const int gain =\n                        pieceValue(\n                            capturedPieceForMove(\n                                pos,\n                                move\n                            )\n                        );",
+          "new": "                if (\n                    !capture &&\n                    !move.promotion\n                    ) {\n                    continue;\n                }\n\n                char capturedPiece =\n                    '.';\n\n                if (\n                    capture\n                    ) {\n                    capturedPiece =\n                        capturedPieceForMove(\n                            pos,\n                            move\n                        );\n                }\n\n                if (\n                    capture &&\n                    !move.promotion\n                    ) {\n                    const int gain =\n                        pieceValue(\n                            capturedPiece\n                        );",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "                const int see =\n                    staticExchangeEvaluation(\n                        pos,\n                        move\n                    );\n\n                if (\n                    see < 0 &&\n                    !move.promotion\n                    ) {\n                    if (\n                        context.stats != nullptr\n                        ) {\n                        ++context.stats->qsearchSeePrunes;\n                    }\n\n                    continue;\n                }",
+          "new": "                if (\n                    !move.promotion\n                    &&\n                    !qsearchCaptureCannotHaveNegativeSee(\n                        pos,\n                        move,\n                        capturedPiece\n                    )\n                    ) {\n                    const int see =\n                        staticExchangeEvaluation(\n                            pos,\n                            move\n                        );\n\n                    if (\n                        see < 0\n                        ) {\n                        if (\n                            context.stats != nullptr\n                            ) {\n                            ++context.stats->qsearchSeePrunes;\n                        }\n\n                        continue;\n                    }\n                }",
+          "expected_matches": 1
+        }
+      ]
+    }
+  ],
+  "verify": [
+    "git diff --check"
+  ]
+}

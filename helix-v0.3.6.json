@@ -1,0 +1,195 @@
+{
+  "version": 2,
+  "name": "Helix v0.3.6 two-phase raw source generation",
+  "preflight": [
+    {
+      "type": "sha256",
+      "name": "Check helix.py baseline",
+      "path": "helix.py",
+      "equals": "a334a50a0cd51b62306f69e5c3af202a30fb64e8616932de8920a8d356ca9306"
+    },
+    {
+      "type": "sha256",
+      "name": "Check prompts/coder.txt baseline",
+      "path": "prompts/coder.txt",
+      "equals": "07bdb2b3669c30687655a9bce642f08d2c7b9d28b009540294fb6b0836f4fc4e"
+    },
+    {
+      "type": "sha256",
+      "name": "Check tests/test_helix.py baseline",
+      "path": "tests/test_helix.py",
+      "equals": "342550c139720c53f54724ee9e530e25c935cf9e5ff75eece03f6faa900fb38b"
+    },
+    {
+      "type": "sha256",
+      "name": "Check pyproject.toml baseline",
+      "path": "pyproject.toml",
+      "equals": "8106cb85f32821f6d567656fedb05ca8ae1ab69bd6b01ff4cdfe3d720c5deb39"
+    },
+    {
+      "type": "sha256",
+      "name": "Check README.md baseline",
+      "path": "README.md",
+      "equals": "9f1b727edcf042a2c5fcacb9f7f9f29ab885ef7c9e1e2b0480a486405aaa458c"
+    }
+  ],
+  "files": [
+    {
+      "path": "helix.py",
+      "sha256": "a334a50a0cd51b62306f69e5c3af202a30fb64e8616932de8920a8d356ca9306",
+      "edits": [
+        {
+          "op": "replace",
+          "old": "VERSION = \"0.3.5\"\n",
+          "new": "VERSION = \"0.3.6\"\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "class ModelBackend:\n    def complete(self, system: str, user: str) -> str:\n        raise NotImplementedError\n",
+          "new": "class ModelBackend:\n    def complete(\n        self,\n        system: str,\n        user: str,\n        *,\n        json_mode: bool = True,\n    ) -> str:\n        raise NotImplementedError\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "    def complete(self, system: str, user: str) -> str:\n        base = (self.spec.base_url or \"http://localhost:11434\").rstrip(\"/\")\n        payload = {\n            \"model\": self.spec.model,\n            \"stream\": False,\n            \"format\": \"json\",\n            \"messages\": [\n                {\"role\": \"system\", \"content\": system},\n                {\"role\": \"user\", \"content\": user},\n            ],\n        }\n",
+          "new": "    def complete(\n        self,\n        system: str,\n        user: str,\n        *,\n        json_mode: bool = True,\n    ) -> str:\n        base = (self.spec.base_url or \"http://localhost:11434\").rstrip(\"/\")\n        payload = {\n            \"model\": self.spec.model,\n            \"stream\": False,\n            \"messages\": [\n                {\"role\": \"system\", \"content\": system},\n                {\"role\": \"user\", \"content\": user},\n            ],\n        }\n\n        if json_mode:\n            payload[\"format\"] = \"json\"\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "    def complete(self, system: str, user: str) -> str:\n        if not self.spec.base_url:\n",
+          "new": "    def complete(\n        self,\n        system: str,\n        user: str,\n        *,\n        json_mode: bool = True,\n    ) -> str:\n        if not self.spec.base_url:\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "insert_before",
+          "anchor": "class ModelRouter:\n",
+          "content": "def build_raw_content_prompt(\n    *,\n    original_user: str,\n    path: str,\n) -> str:\n    try:\n        state = json.loads(original_user)\n    except json.JSONDecodeError:\n        state = {}\n\n    if not isinstance(state, dict):\n        state = {}\n\n    task = state.get(\"task\", \"\")\n    staged_files = state.get(\"staged_files\", [])\n    active_staged_file = state.get(\"active_staged_file\")\n    recent_history = state.get(\"recent_history\", [])\n\n    context = {\n        \"task\": task,\n        \"target_path\": path,\n        \"active_staged_file\": active_staged_file,\n        \"staged_files\": staged_files,\n        \"recent_history\": (\n            recent_history[-6:]\n            if isinstance(recent_history, list)\n            else []\n        ),\n    }\n\n    return (\n        \"HELIX RAW FILE CONTENT GENERATION\\n\\n\"\n        f\"Generate the NEXT literal source-code chunk for: {path}\\n\\n\"\n        \"Return ONLY literal file content.\\n\"\n        \"Do NOT return JSON.\\n\"\n        \"Do NOT return markdown fences.\\n\"\n        \"Do NOT include <<<HELIX_CONTENT or HELIX_CONTENT markers.\\n\"\n        \"Do NOT explain the code.\\n\"\n        \"Do NOT repeat source already staged.\\n\"\n        \"Keep this chunk approximately 1500-2500 characters and below \"\n        \"3500 characters.\\n\"\n        \"Continue exactly from the current staged file state.\\n\\n\"\n        \"CURRENT TASK CONTEXT:\\n\"\n        + json.dumps(context, indent=2, ensure_ascii=False)\n    )\n\n\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "insert_before",
+          "anchor": "    def action_with_fallback(\n",
+          "content": "    def _complete_raw_content(\n        self,\n        backend: ModelBackend,\n        *,\n        system: str,\n        original_user: str,\n        path: str,\n    ) -> str:\n        prompt = build_raw_content_prompt(\n            original_user=original_user,\n            path=path,\n        )\n\n        raw = interruptible_call(\n            lambda: backend.complete(\n                system,\n                prompt,\n                json_mode=False,\n            )\n        )\n\n        content = raw\n\n        if content.startswith(\"```\"):\n            raise HelixError(\n                \"Raw source generation returned a markdown code fence. \"\n                \"Return literal file content only.\"\n            )\n\n        if not content.strip():\n            raise HelixError(\n                \"Raw source generation returned an empty content body.\"\n            )\n\n        if \"<<<HELIX_CONTENT\" in content or \"\\nHELIX_CONTENT\" in content:\n            raise HelixError(\n                \"Raw source generation must return only literal file content \"\n                \"without HELIX_CONTENT markers.\"\n            )\n\n        if not content.endswith(\"\\n\"):\n            content += \"\\n\"\n\n        if len(content) > self.config.max_create_chunk_chars:\n            raise HelixError(\n                f\"Raw generated chunk is too large: {len(content)} characters. \"\n                f\"Hard maximum is {self.config.max_create_chunk_chars}.\"\n            )\n\n        return content\n\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "                    raw = interruptible_call(\n                        lambda: backend.complete(system, request_user)\n                    )\n",
+          "new": "                    raw = interruptible_call(\n                        lambda: backend.complete(\n                            system,\n                            request_user,\n                            json_mode=True,\n                        )\n                    )\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "                    action = extract_action(raw)\n                    validate_action(action)\n                    return candidate, action\n",
+          "new": "                    action = extract_action(raw)\n                    validate_action(action)\n\n                    if action.get(\"tool\") == \"append_file_raw\":\n                        args = action.get(\"args\", {})\n                        path = str(args.get(\"path\", \"\"))\n\n                        raw_content = self._complete_raw_content(\n                            backend,\n                            system=system,\n                            original_user=user,\n                            path=path,\n                        )\n\n                        action = {\n                            \"tool\": \"append_file_raw\",\n                            \"args\": {\n                                \"path\": path,\n                                \"_raw_content\": raw_content,\n                            },\n                        }\n\n                        validate_action(action)\n\n                    return candidate, action\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "            f\"For {first_path}, use append_file to add remaining content \"\n            \"or finish_file if the file is complete. \"\n",
+          "new": "            f\"For {first_path}, prefer append_file_raw to add remaining source \"\n            \"or finish_file if the file is complete. \"\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "            \"For source-code appends, prefer append_file_raw. \"\n            \"Use EXACTLY this transport:\\n\\n\"\n            '{\"tool\":\"append_file_raw\",\"args\":{\"path\":\"PATH\"}}\\n'\n            \"<<<HELIX_CONTENT\\n\"\n            \"<literal source code here - do not JSON escape it>\\n\"\n            \"HELIX_CONTENT\\n\\n\"\n            \"Do not put source code in the JSON header. \"\n            \"The header contains only the path.\"\n",
+          "new": "            \"For source-code appends, use append_file_raw. \"\n            \"Return ONLY this small JSON action header:\\n\\n\"\n            '{\"tool\":\"append_file_raw\",\"args\":{\"path\":\"PATH\"}}\\n\\n'\n            \"Do not include source code in this JSON response. \"\n            \"After Helix accepts the action header, Helix will make a separate \"\n            \"raw-content request where JSON mode is disabled.\"\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "        \"For normal tools, return exactly ONE corrected JSON object and nothing else.\\n\"\n        \"For append_file_raw, return the small JSON header followed by the literal \"\n        \"HELIX_CONTENT body exactly as shown above.\\n\"\n        'Normal top-level shape: {\"tool\":\"TOOL_NAME\",\"args\":{...}}\\n'\n",
+          "new": "        \"Return exactly ONE corrected JSON object and nothing else.\\n\"\n        \"For append_file_raw, return only the small JSON header with path. \"\n        \"Helix performs raw source generation in a second non-JSON model call.\\n\"\n        'Required top-level shape: {\"tool\":\"TOOL_NAME\",\"args\":{...}}\\n'\n",
+          "expected_matches": 1
+        }
+      ]
+    },
+    {
+      "path": "prompts/coder.txt",
+      "sha256": "07bdb2b3669c30687655a9bce642f08d2c7b9d28b009540294fb6b0836f4fc4e",
+      "edits": [
+        {
+          "op": "insert_before",
+          "anchor": "Useful tools include ",
+          "content": "66. append_file_raw is a TWO-PHASE tool. In the normal action response, return only {\"tool\":\"append_file_raw\",\"args\":{\"path\":\"...\"}}.\n\n67. Never place source code, HELIX_CONTENT markers, markdown fences, or a content argument in the append_file_raw action header.\n\n68. After Helix accepts append_file_raw, Helix automatically requests the literal source body in a separate model call with JSON mode disabled.\n\n69. During the raw-content generation call, return source code only. No JSON, no markdown, no explanation, and no HELIX_CONTENT markers.\n\n70. Prefer append_file_raw for Python and other source files. Use legacy append_file only for short simple text when JSON escaping is trivial.\n\n",
+          "expected_matches": 1
+        }
+      ]
+    },
+    {
+      "path": "tests/test_helix.py",
+      "sha256": "342550c139720c53f54724ee9e530e25c935cf9e5ff75eece03f6faa900fb38b",
+      "edits": [
+        {
+          "op": "insert_before",
+          "anchor": "    def test_interruptible_call_returns_value(self):\n",
+          "content": "    def test_raw_content_prompt_requests_literal_source_only(self):\n        payload = json.dumps(\n            {\n                \"task\": \"Build app\",\n                \"active_staged_file\": \"app.py\",\n                \"staged_files\": [\n                    {\n                        \"path\": \"app.py\",\n                        \"characters\": 100,\n                    }\n                ],\n                \"recent_history\": [],\n            }\n        )\n\n        prompt = helix.build_raw_content_prompt(\n            original_user=payload,\n            path=\"app.py\",\n        )\n\n        self.assertIn(\"app.py\", prompt)\n        self.assertIn(\"Return ONLY literal file content\", prompt)\n        self.assertIn(\"Do NOT return JSON\", prompt)\n        self.assertIn(\"Do NOT return markdown fences\", prompt)\n\n    def test_ollama_json_mode_is_optional(self):\n        spec = helix.ModelSpec(\n            provider=\"ollama\",\n            model=\"test-model\",\n        )\n        backend = helix.OllamaBackend(spec)\n\n        self.assertIsInstance(backend, helix.ModelBackend)\n\n    def test_router_two_phase_raw_generation(self):\n        class FakeBackend:\n            def __init__(self):\n                self.calls = []\n\n            def complete(\n                self,\n                system,\n                user,\n                *,\n                json_mode=True,\n            ):\n                self.calls.append(json_mode)\n\n                if json_mode:\n                    return json.dumps(\n                        {\n                            \"tool\": \"append_file_raw\",\n                            \"args\": {\n                                \"path\": \"app.py\",\n                            },\n                        }\n                    )\n\n                return (\n                    'def hello():\\n'\n                    '    print(\"hello\")\\n'\n                )\n\n        config = helix.HelixConfig(\n            patchforge_cli=\"\",\n            max_steps=0,\n            command_timeout_seconds=10,\n            models={\n                \"main\": helix.ModelSpec(\n                    provider=\"ollama\",\n                    model=\"main\",\n                )\n            },\n        )\n\n        router = helix.ModelRouter(config)\n        fake = FakeBackend()\n        router.backend = lambda role: fake\n\n        payload = json.dumps(\n            {\n                \"task\": \"Build app\",\n                \"active_staged_file\": \"app.py\",\n                \"staged_files\": [\n                    {\n                        \"path\": \"app.py\",\n                        \"characters\": 0,\n                    }\n                ],\n                \"recent_history\": [],\n            }\n        )\n\n        role, action = router.action_with_fallback(\n            \"main\",\n            \"system\",\n            payload,\n        )\n\n        self.assertEqual(role, \"main\")\n        self.assertEqual(\n            action[\"tool\"],\n            \"append_file_raw\",\n        )\n        self.assertEqual(\n            fake.calls,\n            [True, False],\n        )\n        self.assertIn(\n            'print(\"hello\")',\n            action[\"args\"][\"_raw_content\"],\n        )\n\n    def test_raw_generation_adds_final_newline(self):\n        class FakeBackend:\n            def complete(\n                self,\n                system,\n                user,\n                *,\n                json_mode=True,\n            ):\n                return \"print('hello')\"\n\n        config = helix.HelixConfig(\n            patchforge_cli=\"\",\n            max_steps=0,\n            command_timeout_seconds=10,\n            models={\n                \"main\": helix.ModelSpec(\n                    provider=\"ollama\",\n                    model=\"main\",\n                )\n            },\n        )\n\n        router = helix.ModelRouter(config)\n\n        content = router._complete_raw_content(\n            FakeBackend(),\n            system=\"system\",\n            original_user=json.dumps(\n                {\n                    \"task\": \"test\",\n                    \"staged_files\": [],\n                }\n            ),\n            path=\"app.py\",\n        )\n\n        self.assertEqual(\n            content,\n            \"print('hello')\\n\",\n        )\n\n",
+          "expected_matches": 1
+        }
+      ]
+    },
+    {
+      "path": "pyproject.toml",
+      "sha256": "8106cb85f32821f6d567656fedb05ca8ae1ab69bd6b01ff4cdfe3d720c5deb39",
+      "edits": [
+        {
+          "op": "replace",
+          "old": "version = \"0.3.5\"\n",
+          "new": "version = \"0.3.6\"\n",
+          "expected_matches": 1
+        }
+      ]
+    },
+    {
+      "path": "README.md",
+      "sha256": "9f1b727edcf042a2c5fcacb9f7f9f29ab885ef7c9e1e2b0480a486405aaa458c",
+      "edits": [
+        {
+          "op": "replace",
+          "old": "Current version: **v0.3.5**",
+          "new": "Current version: **v0.3.6**",
+          "expected_matches": 1
+        },
+        {
+          "op": "insert_after",
+          "anchor": "Helix records `last_completed_file` after a successful Patch Forge creation and includes a post-finish continuation instruction in subsequent model context. The model is directed toward remaining requirements, testing, or verification instead of immediately rereading or rescanning work that was just completed.\n",
+          "content": "\n\n## Two-phase raw generation in v0.3.6\n\nOllama normally remains in structured JSON mode for Helix action selection. When the selected action is `append_file_raw`, the first response contains only the target path. Helix then performs a second model call with Ollama JSON formatting disabled and requests only the next literal source-code chunk.\n\nThis preserves reliable structured tool selection while completely separating source code from JSON escaping. Triple-quoted strings, ordinary quotes, backslashes, f-strings, and multiline source are therefore no longer embedded inside a JSON action.\n\nThe two-phase design also keeps the existing MAIN-to-LARGE escalation handoff. Whichever model owns the current step receives the shared Helix task state, and raw source generation receives focused staged-file context for the exact target file.\n",
+          "expected_matches": 1
+        }
+      ]
+    }
+  ],
+  "build": [
+    {
+      "type": "command",
+      "name": "Compile Helix",
+      "command": "python -m py_compile helix.py",
+      "expect_exit": 0,
+      "timeout_seconds": 60
+    }
+  ],
+  "verify": [
+    {
+      "type": "command",
+      "name": "Check resulting diff",
+      "command": "git diff --check",
+      "expect_exit": 0,
+      "timeout_seconds": 60
+    }
+  ],
+  "tests": [
+    {
+      "type": "command",
+      "name": "Run Helix tests",
+      "command": "python -m unittest discover -s tests -v",
+      "expect_exit": 0,
+      "timeout_seconds": 120,
+      "output_contains": "OK"
+    }
+  ],
+  "options": {
+    "rollback_on_verify_failure": true
+  }
+}

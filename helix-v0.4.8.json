@@ -1,0 +1,139 @@
+{
+  "version": 2,
+  "name": "Helix v0.4.8 staged Python and pytest discovery validation",
+  "preflight": [
+    {
+      "type": "sha256",
+      "name": "Check helix.py",
+      "path": "helix.py",
+      "equals": "f4524cd22755c321f3850933a246da63d0142805d80b08525ab767158d1d4ea3"
+    },
+    {
+      "type": "sha256",
+      "name": "Check tests/test_helix.py",
+      "path": "tests/test_helix.py",
+      "equals": "715a661bde29207ec2a0b7e749354cc4816a75afb4389243218eefec21a7fb3e"
+    },
+    {
+      "type": "sha256",
+      "name": "Check pyproject.toml",
+      "path": "pyproject.toml",
+      "equals": "bfe4acc74557289b0ff18e4c2908aa8b01a208725a54da8ffbfe5e34c418095a"
+    },
+    {
+      "type": "sha256",
+      "name": "Check README.md",
+      "path": "README.md",
+      "equals": "80a01cca3bbe0a3cb5cb8a5ece47481d14d5303e1e221ed402ab46e1bccd43f9"
+    }
+  ],
+  "files": [
+    {
+      "path": "helix.py",
+      "sha256": "f4524cd22755c321f3850933a246da63d0142805d80b08525ab767158d1d4ea3",
+      "edits": [
+        {
+          "op": "replace",
+          "old": "VERSION = \"0.4.7\"\n",
+          "new": "VERSION = \"0.4.8\"\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "insert_before",
+          "anchor": "    def _post_finish_requires_test_file(\n",
+          "content": "    @staticmethod\n    def _staged_python_validation_error(\n        relative: str,\n        content: str,\n    ) -> str | None:\n        \"\"\"Validate staged Python before Patch Forge is allowed to create it.\"\"\"\n        path = Path(relative)\n\n        if path.suffix.lower() != \".py\":\n            return None\n\n        try:\n            compile(\n                content,\n                relative,\n                \"exec\",\n            )\n        except SyntaxError as exc:\n            line = exc.lineno or \"?\"\n            message = exc.msg or \"invalid syntax\"\n            source = (exc.text or \"\").strip()\n\n            detail = (\n                f\" Source: {source}\"\n                if source\n                else \"\"\n            )\n\n            return (\n                f\"Python syntax validation failed for {relative} \"\n                f\"at line {line}: {message}.{detail}\"\n            )\n\n        filename = path.name.lower()\n        is_test_file = (\n            filename.startswith(\"test_\")\n            or filename.endswith(\"_test.py\")\n        )\n\n        if is_test_file:\n            discoverable_test = re.search(\n                r\"(?m)^\\s*def\\s+test_[A-Za-z0-9_]*\\s*\\(\",\n                content,\n            )\n\n            if not discoverable_test:\n                return (\n                    f\"Pytest discovery validation failed for {relative}: \"\n                    \"the file contains no discoverable test_* function. \"\n                    \"Add real pytest tests before finishing this file.\"\n                )\n\n        return None\n\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "            if not isinstance(assembled, str):\n                raise HelixError(\n                    f\"Unable to assemble staged file: {relative}\"\n                )\n\n            result = self.forge.create_file(\n                relative,\n                assembled,\n                state.step,\n            )\n",
+          "new": "            if not isinstance(assembled, str):\n                raise HelixError(\n                    f\"Unable to assemble staged file: {relative}\"\n                )\n\n            validation_error = self._staged_python_validation_error(\n                relative,\n                assembled,\n            )\n\n            if validation_error:\n                state.coding_failures += 1\n                state.last_tool_failure = {\n                    \"tool\": \"finish_file\",\n                    \"path\": relative,\n                    \"stage\": \"staged_validation\",\n                    \"error\": validation_error,\n                }\n\n                return False, (\n                    validation_error\n                    + \" The file remains staged. Read or append corrected \"\n                    \"source, then call finish_file again.\"\n                )\n\n            result = self.forge.create_file(\n                relative,\n                assembled,\n                state.step,\n            )\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "            state.staged_files[relative] = characters\n            state.workspace_revision += 1\n            state.seen_actions.clear()\n\n            return True, (\n",
+          "new": "            state.staged_files[relative] = characters\n            state.workspace_revision += 1\n            state.seen_actions.clear()\n            state.last_tool_failure = None\n\n            return True, (\n",
+          "expected_matches": 2
+        },
+        {
+          "op": "replace",
+          "old": "                            if staged_content:\n                                print(\n                                    f\"[CORE] staged recovery -> finish_file \"\n                                    f\"{active_staged}\"\n                                )\n                                tool = \"finish_file\"\n                                args = {\"path\": active_staged}\n                                action = {\n                                    \"tool\": tool,\n                                    \"args\": args,\n                                }\n                                break\n",
+          "new": "                            if staged_content:\n                                validation_failure = (\n                                    isinstance(\n                                        state.last_tool_failure,\n                                        dict,\n                                    )\n                                    and state.last_tool_failure.get(\"tool\")\n                                    == \"finish_file\"\n                                    and state.last_tool_failure.get(\"path\")\n                                    == active_staged\n                                    and state.last_tool_failure.get(\"stage\")\n                                    == \"staged_validation\"\n                                )\n\n                                if not validation_failure:\n                                    print(\n                                        f\"[CORE] staged recovery -> finish_file \"\n                                        f\"{active_staged}\"\n                                    )\n                                    tool = \"finish_file\"\n                                    args = {\"path\": active_staged}\n                                    action = {\n                                        \"tool\": tool,\n                                        \"args\": args,\n                                    }\n                                    break\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "            if result[\"ok\"]:\n                self.workspace.clear_staged_file(relative)\n",
+          "new": "            if result[\"ok\"]:\n                state.last_tool_failure = None\n                self.workspace.clear_staged_file(relative)\n",
+          "expected_matches": 1
+        }
+      ]
+    },
+    {
+      "path": "tests/test_helix.py",
+      "sha256": "715a661bde29207ec2a0b7e749354cc4816a75afb4389243218eefec21a7fb3e",
+      "edits": [
+        {
+          "op": "insert_before",
+          "anchor": "    def test_staged_action_lock_rejects_unrelated_tool(self):\n",
+          "content": "    def test_staged_python_validation_accepts_valid_python(self):\n        error = helix.HelixAgent._staged_python_validation_error(\n            \"todo.py\",\n            \"def main():\\n    return 0\\n\",\n        )\n\n        self.assertIsNone(error)\n\n    def test_staged_python_validation_rejects_truncated_python(self):\n        error = helix.HelixAgent._staged_python_validation_error(\n            \"todo.py\",\n            \"def find_by_id(item_id):\\n    if item_id\\n\",\n        )\n\n        self.assertIsNotNone(error)\n        self.assertIn(\n            \"Python syntax validation failed\",\n            error,\n        )\n\n    def test_staged_test_validation_requires_discoverable_test(self):\n        error = helix.HelixAgent._staged_python_validation_error(\n            \"test_todo.py\",\n            (\n                \"class TodoManager:\\n\"\n                \"    def add(self, text):\\n\"\n                \"        return text\\n\"\n            ),\n        )\n\n        self.assertIsNotNone(error)\n        self.assertIn(\n            \"Pytest discovery validation failed\",\n            error,\n        )\n\n    def test_staged_test_validation_accepts_pytest_function(self):\n        error = helix.HelixAgent._staged_python_validation_error(\n            \"test_todo.py\",\n            (\n                \"def test_add():\\n\"\n                \"    assert 1 + 1 == 2\\n\"\n            ),\n        )\n\n        self.assertIsNone(error)\n\n    def test_finish_validation_keeps_file_staged(self):\n        source = Path(helix.__file__).read_text(\n            encoding=\"utf-8\"\n        )\n\n        self.assertIn(\n            '\"stage\": \"staged_validation\"',\n            source,\n        )\n        self.assertIn(\n            \"The file remains staged.\",\n            source,\n        )\n\n",
+          "expected_matches": 1
+        }
+      ]
+    },
+    {
+      "path": "pyproject.toml",
+      "sha256": "bfe4acc74557289b0ff18e4c2908aa8b01a208725a54da8ffbfe5e34c418095a",
+      "edits": [
+        {
+          "op": "replace",
+          "old": "version = \"0.4.7\"\n",
+          "new": "version = \"0.4.8\"\n",
+          "expected_matches": 1
+        }
+      ]
+    },
+    {
+      "path": "README.md",
+      "sha256": "80a01cca3bbe0a3cb5cb8a5ece47481d14d5303e1e221ed402ab46e1bccd43f9",
+      "edits": [
+        {
+          "op": "replace",
+          "old": "Current version: **v0.4.7**",
+          "new": "Current version: **v0.4.8**",
+          "expected_matches": 1
+        }
+      ]
+    }
+  ],
+  "build": [
+    {
+      "type": "command",
+      "name": "Compile Helix",
+      "command": "python -m py_compile helix.py",
+      "expect_exit": 0,
+      "timeout_seconds": 60
+    },
+    {
+      "type": "command",
+      "name": "Compile tests",
+      "command": "python -m py_compile tests/test_helix.py",
+      "expect_exit": 0,
+      "timeout_seconds": 60
+    }
+  ],
+  "tests": [
+    {
+      "type": "command",
+      "name": "Run Helix tests",
+      "command": "python -m unittest discover -s tests -v",
+      "expect_exit": 0,
+      "timeout_seconds": 120,
+      "output_contains": "OK"
+    }
+  ],
+  "options": {
+    "rollback_on_verify_failure": true
+  }
+}

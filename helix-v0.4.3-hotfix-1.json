@@ -1,0 +1,48 @@
+{
+  "version": 2,
+  "name": "Helix v0.4.3 test io import hotfix",
+  "preflight": [
+    {
+      "type": "sha256",
+      "name": "Check test baseline",
+      "path": "tests/test_helix.py",
+      "equals": "d99a2cdfd32fbe10d4458e1102bade49b07d82da24a4a9a7f6da8670c5ac23c9"
+    }
+  ],
+  "files": [
+    {
+      "path": "tests/test_helix.py",
+      "sha256": "d99a2cdfd32fbe10d4458e1102bade49b07d82da24a4a9a7f6da8670c5ac23c9",
+      "edits": [
+        {
+          "op": "insert_after",
+          "anchor": "import json\n",
+          "content": "import io\n",
+          "expected_matches": 1
+        }
+      ]
+    }
+  ],
+  "build": [
+    {
+      "type": "command",
+      "name": "Compile tests",
+      "command": "python -m py_compile tests/test_helix.py",
+      "expect_exit": 0,
+      "timeout_seconds": 60
+    }
+  ],
+  "tests": [
+    {
+      "type": "command",
+      "name": "Run Helix tests",
+      "command": "python -m unittest discover -s tests -v",
+      "expect_exit": 0,
+      "timeout_seconds": 120,
+      "output_contains": "OK"
+    }
+  ],
+  "options": {
+    "rollback_on_verify_failure": true
+  }
+}

@@ -1,0 +1,261 @@
+{
+  "version": 2,
+  "name": "Helix v0.2.1 reliability and autonomous recovery",
+  "preflight": [
+    {
+      "type": "sha256",
+      "name": "Check helix.py baseline",
+      "path": "helix.py",
+      "equals": "0b07935a0fb1d9c588eb6da3cd97b55c54b144941a32a0ab4c8e15ac3ee3d67a"
+    },
+    {
+      "type": "sha256",
+      "name": "Check helix.toml baseline",
+      "path": "helix.toml",
+      "equals": "8b6929e03618acd34ade34c523acbbebf8914884a48d1604fddfc161a7dc7142"
+    },
+    {
+      "type": "sha256",
+      "name": "Check prompts/coder.txt baseline",
+      "path": "prompts/coder.txt",
+      "equals": "c41cc4e59501d51ce5bf34fc6eedb8de89d79a4daa0b7c8aa3569190312e3911"
+    },
+    {
+      "type": "sha256",
+      "name": "Check tests/test_helix.py baseline",
+      "path": "tests/test_helix.py",
+      "equals": "b8213bdef60fcb4377d243bfb554d9a3053c25f5baf0bb2fd42e570c7eeec33f"
+    },
+    {
+      "type": "sha256",
+      "name": "Check pyproject.toml baseline",
+      "path": "pyproject.toml",
+      "equals": "d8caaefd157ba3cd3647846e1065109aef0f1ac8d77a72a65e5c1c02eca8b1b7"
+    },
+    {
+      "type": "sha256",
+      "name": "Check README.md baseline",
+      "path": "README.md",
+      "equals": "2bce515715bbd6332814d6787730e2ad0504b6bf79c9910c04cd2332b3b7a1ac"
+    }
+  ],
+  "files": [
+    {
+      "path": "helix.py",
+      "sha256": "0b07935a0fb1d9c588eb6da3cd97b55c54b144941a32a0ab4c8e15ac3ee3d67a",
+      "edits": [
+        {
+          "op": "replace",
+          "old": "VERSION = \"0.2.0\"\n",
+          "new": "VERSION = \"0.2.1\"\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "insert_after",
+          "anchor": "    models: dict[str, ModelSpec]\n",
+          "content": "    stall_escalation_steps: int = 3\n    stall_stop_steps: int = 8\n    max_create_chunk_chars: int = 3500\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "insert_after",
+          "anchor": "        models=models,\n",
+          "content": "        stall_escalation_steps=max(\n            1,\n            int(runtime.get(\"stall_escalation_steps\", 3)),\n        ),\n        stall_stop_steps=max(\n            2,\n            int(runtime.get(\"stall_stop_steps\", 8)),\n        ),\n        max_create_chunk_chars=max(\n            500,\n            int(runtime.get(\"max_create_chunk_chars\", 3500)),\n        ),\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "insert_after",
+          "anchor": "    history: list[StepRecord] = field(default_factory=list)\n",
+          "content": "    stall_steps: int = 0\n    stall_level: int = 0\n    workspace_revision: int = 0\n    seen_actions: set[str] = field(default_factory=set)\n    last_failure_signature: str = \"\"\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "insert_after",
+          "anchor": "            \".helix\",\n",
+          "content": "            \".patchforge\",\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "insert_before",
+          "anchor": "    def hash_file(self, relative: str) -> str:\n",
+          "content": "    def create_file_chunk(\n        self,\n        relative: str,\n        content: str,\n        mode: str,\n    ) -> str | None:\n        target = self.resolve(relative)\n        if target.exists():\n            raise HelixError(\n                f\"Refusing to overwrite existing file {relative}; use Patch Forge for modifications.\"\n            )\n\n        staging_root = (self.root / \".helix\" / \"staging\").resolve()\n        staging_root.mkdir(parents=True, exist_ok=True)\n        stage = (staging_root / f\"{relative}.part\").resolve()\n\n        try:\n            stage.relative_to(staging_root)\n        except ValueError as exc:\n            raise HelixError(f\"Invalid staged file path: {relative}\") from exc\n\n        mode = mode.lower().strip()\n\n        if mode == \"start\":\n            stage.parent.mkdir(parents=True, exist_ok=True)\n            stage.write_text(content, encoding=\"utf-8\", newline=\"\\n\")\n            return None\n\n        if mode not in {\"append\", \"finish\"}:\n            raise HelixError(\n                \"create_file_chunk mode must be start, append, or finish.\"\n            )\n\n        if not stage.is_file():\n            raise HelixError(\n                f\"No staged file exists for {relative}; begin with mode=start.\"\n            )\n\n        with stage.open(\"a\", encoding=\"utf-8\", newline=\"\\n\") as handle:\n            handle.write(content)\n\n        if mode == \"append\":\n            return None\n\n        target.parent.mkdir(parents=True, exist_ok=True)\n        stage.replace(target)\n        return hashlib.sha256(target.read_bytes()).hexdigest()\n\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "    def __init__(self, config: HelixConfig):\n        self.config = config\n",
+          "new": "    def __init__(self, config: HelixConfig):\n        self.config = config\n        self.last_model_failures = 0\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "    def choose_role(self, state: AgentState) -> str:\n        failures = state.coding_failures\n        if failures >= 5 and self._enabled(\"remote\"):\n            return \"remote\"\n        if failures >= 3 and self._enabled(\"large\"):\n            return \"large\"\n        return \"main\"\n",
+          "new": "    def choose_role(self, state: AgentState) -> str:\n        if state.stall_level >= 2 and self._enabled(\"remote\"):\n            return \"remote\"\n        if state.stall_level >= 1:\n            if self._enabled(\"large\"):\n                return \"large\"\n            if self._enabled(\"remote\"):\n                return \"remote\"\n\n        failures = state.coding_failures\n        if failures >= 5 and self._enabled(\"remote\"):\n            return \"remote\"\n        if failures >= 3 and self._enabled(\"large\"):\n            return \"large\"\n        return \"main\"\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "        errors: list[str] = []\n        for candidate in order:\n            try:\n                raw = self.backend(candidate).complete(system, user)\n",
+          "new": "        self.last_model_failures = 0\n        errors: list[str] = []\n        for candidate in order:\n            try:\n                raw = self.backend(candidate).complete(system, user)\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "            except Exception as exc:\n                errors.append(f\"{candidate}: {exc}\")\n                print(f\"[MODEL] {candidate} unusable: {exc}\")\n",
+          "new": "            except Exception as exc:\n                self.last_model_failures += 1\n                errors.append(f\"{candidate}: {exc}\")\n                print(f\"[MODEL] {candidate} unusable: {exc}\")\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "insert_after",
+          "anchor": "    \"create_file\": {\"args\": {\"path\": \"string\", \"content\": \"string\"}},\n",
+          "content": "    \"create_file_chunk\": {\n        \"args\": {\n            \"path\": \"string\",\n            \"content\": \"string\",\n            \"mode\": \"start | append | finish\"\n        }\n    },\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "            \"create_file\": \"CREATE\",\n            \"patch_file\": \"FORGE\",\n",
+          "new": "            \"create_file\": \"CREATE\",\n            \"create_file_chunk\": \"CREATE\",\n            \"patch_file\": \"FORGE\",\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "        print(f\"  Execute   {'allowed' if self.permissions.execute else 'DISABLED'}\")\n        print(\"  \" + \"-\" * 64)\n",
+          "new": "        print(f\"  Execute   {'allowed' if self.permissions.execute else 'DISABLED'}\")\n        print(f\"  Steps     {'unlimited' if self.config.max_steps == 0 else self.config.max_steps}\")\n        print(\n            f\"  Stall     escalate={self.config.stall_escalation_steps} \"\n            f\"stop={self.config.stall_stop_steps}\"\n        )\n        print(\"  \" + \"-\" * 64)\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "insert_after",
+          "anchor": "    def model_error(self, step: int, message: str) -> None:\n        print(f\"  [{step:03d}] MODEL  ERROR  {message}\")\n\n",
+          "content": "    def stall(self, step: int, message: str) -> None:\n        print(f\"  [{step:03d}] LOOP   STALL  {message}\")\n\n    def escalation(self, step: int, role: str, stall_steps: int) -> None:\n        print(\n            f\"  [{step:03d}] ROUTER ESCALATE -> {role.upper()} \"\n            f\"(stall score {stall_steps})\"\n        )\n\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "insert_before",
+          "anchor": "    def run(self, task: str) -> int:\n",
+          "content": "    @staticmethod\n    def _action_signature(tool: str, args: dict[str, Any]) -> str:\n        return tool + \":\" + json.dumps(\n            args,\n            sort_keys=True,\n            ensure_ascii=False,\n            separators=(\",\", \":\"),\n        )\n\n    @staticmethod\n    def _failure_signature(\n        tool: str,\n        args: dict[str, Any],\n        summary: str,\n    ) -> str:\n        normalized = re.sub(\n            r'\"duration_seconds\":\\s*[0-9.]+',\n            '\"duration_seconds\":<time>',\n            summary,\n        )\n        return (\n            HelixAgent._action_signature(tool, args)\n            + \":\"\n            + normalized[:3000]\n        )\n\n    @staticmethod\n    def _duplicate_sensitive(tool: str) -> bool:\n        return tool in {\n            \"list_files\",\n            \"read_file\",\n            \"search_text\",\n            \"hash_file\",\n            \"git_diff\",\n        }\n\n    def _mark_progress(self, state: AgentState) -> None:\n        state.stall_steps = 0\n        state.stall_level = 0\n        state.last_failure_signature = \"\"\n\n    def _mark_stall(self, state: AgentState, reason: str) -> bool:\n        state.stall_steps += 1\n        self.console.stall(state.step, reason)\n\n        escalation = self.config.stall_escalation_steps\n        new_level = state.stall_level\n\n        if state.stall_steps >= escalation:\n            new_level = max(new_level, 1)\n\n        if (\n            state.stall_steps >= escalation * 2\n            and self.router._enabled(\"remote\")\n        ):\n            new_level = max(new_level, 2)\n\n        if new_level > state.stall_level:\n            state.stall_level = new_level\n            role = self.router.choose_role(state)\n            self.console.escalation(\n                state.step,\n                role,\n                state.stall_steps,\n            )\n\n        return state.stall_steps >= self.config.stall_stop_steps\n\n    def _note_failure(\n        self,\n        state: AgentState,\n        tool: str,\n        args: dict[str, Any],\n        summary: str,\n    ) -> bool:\n        signature = self._failure_signature(tool, args, summary)\n\n        if signature == state.last_failure_signature:\n            return self._mark_stall(\n                state,\n                f\"Repeated unchanged failure from {tool}.\",\n            )\n\n        state.last_failure_signature = signature\n        return False\n\n    def _stop_task(\n        self,\n        state: AgentState,\n        started: float,\n        message: str,\n    ) -> int:\n        duration = time.monotonic() - started\n        self.sessions.record(\n            task=state.task,\n            status=\"stopped\",\n            summary=message,\n            steps=state.step,\n            duration_seconds=duration,\n        )\n        self.console.stopped(message)\n        return 2\n\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "    def run(self, task: str) -> int:\n        state = AgentState(task=task, project_root=self.project_root)\n        started = time.monotonic()\n        self.console.task_start(task)\n\n        for step in range(1, self.config.max_steps + 1):\n            state.step = step\n            preferred_role = self.router.choose_role(state)\n            user_payload = json.dumps(\n                {\n                    \"task\": task,\n                    \"project_root\": str(self.project_root),\n                    \"step\": step,\n                    \"coding_failures\": state.coding_failures,\n                    \"model_failures\": state.model_failures,\n                    \"verification_passed\": state.verification_passed,\n                    \"recent_history\": state.recent_context(),\n                    \"available_tools\": TOOLS\n                },\n                indent=2\n            )\n            try:\n                used_role, action = self.router.action_with_fallback(\n                    preferred_role, self.system_prompt, user_payload\n                )\n                tool = str(action[\"tool\"])\n                args = action[\"args\"]\n                self.console.step(step, used_role, tool)\n                ok, summary = self.execute(tool, args, state)\n                state.add(used_role, tool, ok, summary)\n                self.console.result(ok, summary)\n                if tool == \"finish\" and ok:\n                    duration = time.monotonic() - started\n                    self.sessions.record(task=task, status=\"pass\", summary=summary, steps=step, duration_seconds=duration)\n                    self.console.complete(summary, duration)\n                    return 0\n            except Exception as exc:\n                state.model_failures += 1\n                state.add(preferred_role, \"agent_error\", False, str(exc))\n                self.console.model_error(step, str(exc))\n\n        duration = time.monotonic() - started\n        message = \"Maximum step count reached.\"\n        self.sessions.record(task=task, status=\"stopped\", summary=message, steps=self.config.max_steps, duration_seconds=duration)\n        self.console.stopped(message)\n        return 2\n",
+          "new": "    def run(self, task: str) -> int:\n        state = AgentState(task=task, project_root=self.project_root)\n        started = time.monotonic()\n        self.console.task_start(task)\n\n        step = 0\n\n        while True:\n            if self.config.max_steps > 0 and step >= self.config.max_steps:\n                state.step = step\n                return self._stop_task(\n                    state,\n                    started,\n                    \"Maximum step count reached.\",\n                )\n\n            step += 1\n            state.step = step\n            preferred_role = self.router.choose_role(state)\n\n            user_payload = json.dumps(\n                {\n                    \"task\": task,\n                    \"project_root\": str(self.project_root),\n                    \"step\": step,\n                    \"coding_failures\": state.coding_failures,\n                    \"model_failures\": state.model_failures,\n                    \"stall_steps\": state.stall_steps,\n                    \"stall_level\": state.stall_level,\n                    \"workspace_revision\": state.workspace_revision,\n                    \"verification_passed\": state.verification_passed,\n                    \"recent_history\": state.recent_context(),\n                    \"available_tools\": TOOLS,\n                },\n                indent=2,\n            )\n\n            try:\n                used_role, action = self.router.action_with_fallback(\n                    preferred_role,\n                    self.system_prompt,\n                    user_payload,\n                )\n\n                state.model_failures += self.router.last_model_failures\n\n                tool = str(action[\"tool\"])\n                args = action[\"args\"]\n                signature = self._action_signature(tool, args)\n\n                self.console.step(step, used_role, tool)\n\n                if (\n                    self._duplicate_sensitive(tool)\n                    and signature in state.seen_actions\n                ):\n                    summary = (\n                        f\"Duplicate no-progress action blocked: {tool}. \"\n                        \"Repository state has not changed; choose a different action.\"\n                    )\n                    state.add(used_role, tool, False, summary)\n                    self.console.result(False, summary)\n\n                    if self._mark_stall(\n                        state,\n                        f\"Repeated {tool} without repository progress.\",\n                    ):\n                        return self._stop_task(\n                            state,\n                            started,\n                            \"Helix stopped after repeated no-progress actions.\",\n                        )\n                    continue\n\n                ok, summary = self.execute(tool, args, state)\n                state.add(used_role, tool, ok, summary)\n                self.console.result(ok, summary)\n\n                if self._duplicate_sensitive(tool) and ok:\n                    state.seen_actions.add(signature)\n\n                if tool == \"finish\" and ok:\n                    duration = time.monotonic() - started\n                    self.sessions.record(\n                        task=task,\n                        status=\"pass\",\n                        summary=summary,\n                        steps=step,\n                        duration_seconds=duration,\n                    )\n                    self.console.complete(summary, duration)\n                    return 0\n\n                if ok:\n                    self._mark_progress(state)\n                elif self._note_failure(state, tool, args, summary):\n                    return self._stop_task(\n                        state,\n                        started,\n                        \"Helix stopped after the same failure repeated without progress.\",\n                    )\n\n            except Exception as exc:\n                failures = max(1, self.router.last_model_failures)\n                state.model_failures += failures\n                state.add(\n                    preferred_role,\n                    \"agent_error\",\n                    False,\n                    str(exc),\n                )\n                self.console.model_error(step, str(exc))\n\n                if self._mark_stall(\n                    state,\n                    \"Model/tool protocol failed without producing a usable action.\",\n                ):\n                    return self._stop_task(\n                        state,\n                        started,\n                        \"Helix stopped after repeated model/protocol failures.\",\n                    )\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "        if tool == \"create_file\":\n            if not self.permissions.write:\n                return False, \"Write denied: Helix is running in read-only mode.\"\n            relative = str(args[\"path\"])\n            digest = self.workspace.create_file(relative, str(args.get(\"content\", \"\")))\n            state.changed_files.add(relative)\n            state.verification_passed = False\n            state.last_verification_command = \"\"\n            return True, f\"Created {relative}; sha256={digest}\"\n\n        if tool == \"patch_file\":\n",
+          "new": "        if tool == \"create_file\":\n            if not self.permissions.write:\n                return False, \"Write denied: Helix is running in read-only mode.\"\n            relative = str(args[\"path\"])\n            content = str(args.get(\"content\", \"\"))\n\n            if len(content) > self.config.max_create_chunk_chars:\n                return (\n                    False,\n                    \"create_file content is too large for one model action; \"\n                    \"use create_file_chunk with start/append/finish.\",\n                )\n\n            digest = self.workspace.create_file(relative, content)\n            state.changed_files.add(relative)\n            state.workspace_revision += 1\n            state.seen_actions.clear()\n            state.verification_passed = False\n            state.last_verification_command = \"\"\n            return True, f\"Created {relative}; sha256={digest}\"\n\n        if tool == \"create_file_chunk\":\n            if not self.permissions.write:\n                return False, \"Write denied: Helix is running in read-only mode.\"\n\n            relative = str(args[\"path\"])\n            content = str(args.get(\"content\", \"\"))\n            mode = str(args.get(\"mode\", \"\")).lower().strip()\n\n            if len(content) > self.config.max_create_chunk_chars:\n                return (\n                    False,\n                    f\"Chunk exceeds {self.config.max_create_chunk_chars} characters; \"\n                    \"send a smaller chunk.\",\n                )\n\n            digest = self.workspace.create_file_chunk(\n                relative,\n                content,\n                mode,\n            )\n\n            if mode == \"finish\":\n                state.changed_files.add(relative)\n                state.workspace_revision += 1\n                state.seen_actions.clear()\n                state.verification_passed = False\n                state.last_verification_command = \"\"\n                return True, f\"Created {relative}; sha256={digest}\"\n\n            return True, f\"Staged {mode} chunk for {relative}.\"\n\n        if tool == \"patch_file\":\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "insert_after",
+          "anchor": "            if result[\"ok\"]:\n                state.changed_files.add(relative)\n",
+          "content": "                state.workspace_revision += 1\n                state.seen_actions.clear()\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "def interactive_shell(agent: HelixAgent) -> int:\n    print(\"  Commands: :help  :models  :history  :clear  :quit\")\n    print()\n    while True:\n        try:\n            task = input(\"helix> \").strip()\n        except EOFError:\n            print()\n            return 0\n        except KeyboardInterrupt:\n            print(\"\\n  Use :quit to exit Helix.\")\n            continue\n        if not task:\n            continue\n        command = task.lower()\n        if command in {\":quit\", \":exit\"}:\n            return 0\n        if command == \":help\":\n            print(\"  Enter a coding task directly.\")\n            print(\"  :models   Show configured models\")\n            print(\"  :history  Show recent tasks\")\n            print(\"  :clear    Clear the terminal\")\n            print(\"  :quit     Exit Helix\")\n            continue\n        if command == \":models\":\n            agent.console.show_models()\n            continue\n        if command == \":history\":\n            agent.console.show_history(agent.sessions.recent())\n            continue\n        if command == \":clear\":\n            os.system(\"cls\" if os.name == \"nt\" else \"clear\")\n            agent.console.banner()\n            continue\n        if task.startswith(\":\"):\n            print(f\"  Unknown command: {task}\")\n            continue\n        try:\n            agent.run(task)\n        except KeyboardInterrupt:\n            print(\"\\n  Task interrupted by user.\")\n",
+          "new": "def collect_multiline_task(input_fn=None) -> str:\n    if input_fn is None:\n        input_fn = input\n\n    print(\"  Multiline task mode. Paste/type instructions below.\")\n    print(\"  Enter :end on its own line to submit.\")\n    lines: list[str] = []\n\n    while True:\n        line = input_fn(\"... \")\n        if line.strip().lower() == \":end\":\n            break\n        lines.append(line)\n\n    return \"\\n\".join(lines).strip()\n\n\ndef interactive_shell(agent: HelixAgent) -> int:\n    print(\"  Commands: :help  :task  :models  :history  :clear  :quit\")\n    print()\n\n    while True:\n        try:\n            task = input(\"helix> \").strip()\n        except EOFError:\n            print()\n            return 0\n        except KeyboardInterrupt:\n            print(\"\\n  Use :quit to exit Helix.\")\n            continue\n\n        if not task:\n            continue\n\n        command = task.lower()\n\n        if command in {\":quit\", \":exit\"}:\n            return 0\n\n        if command == \":help\":\n            print(\"  Enter a one-line coding task directly.\")\n            print(\"  :task     Enter/paste a multiline task; finish with :end\")\n            print(\"  :models   Show configured models\")\n            print(\"  :history  Show recent tasks\")\n            print(\"  :clear    Clear the terminal\")\n            print(\"  :quit     Exit Helix\")\n            continue\n\n        if command == \":task\":\n            try:\n                task = collect_multiline_task()\n            except (EOFError, KeyboardInterrupt):\n                print(\"\\n  Multiline task cancelled.\")\n                continue\n\n            if not task:\n                print(\"  Empty task cancelled.\")\n                continue\n\n        elif command == \":models\":\n            agent.console.show_models()\n            continue\n\n        elif command == \":history\":\n            agent.console.show_history(agent.sessions.recent())\n            continue\n\n        elif command == \":clear\":\n            os.system(\"cls\" if os.name == \"nt\" else \"clear\")\n            agent.console.banner()\n            continue\n\n        elif task.startswith(\":\"):\n            print(f\"  Unknown command: {task}\")\n            continue\n\n        try:\n            agent.run(task)\n        except KeyboardInterrupt:\n            print(\"\\n  Task interrupted by user.\")\n",
+          "expected_matches": 1
+        }
+      ]
+    },
+    {
+      "path": "helix.toml",
+      "sha256": "8b6929e03618acd34ade34c523acbbebf8914884a48d1604fddfc161a7dc7142",
+      "edits": [
+        {
+          "op": "replace",
+          "old": "max_steps = 40\ncommand_timeout_seconds = 180\n",
+          "new": "# 0 means no hard step limit. Stall detection remains active.\nmax_steps = 0\ncommand_timeout_seconds = 180\nstall_escalation_steps = 3\nstall_stop_steps = 8\nmax_create_chunk_chars = 3500\n",
+          "expected_matches": 1
+        }
+      ]
+    },
+    {
+      "path": "prompts/coder.txt",
+      "sha256": "c41cc4e59501d51ce5bf34fc6eedb8de89d79a4daa0b7c8aa3569190312e3911",
+      "edits": [
+        {
+          "op": "replace",
+          "old": "23. Do not repeatedly retry an action denied because of permissions.\n\nUseful tools include list_files, read_file, search_text, hash_file, create_file, patch_file, run_command, git_diff, and finish.\n",
+          "new": "23. Do not repeatedly retry an action denied because of permissions.\n\n24. For short new files, use create_file.\n\n25. For large new files, do not put the whole file into one giant JSON string. Use create_file_chunk. Start with mode=start, send one or more mode=append chunks, then send mode=finish. Keep each chunk comfortably below the configured chunk-size limit.\n\n26. If a duplicate action is blocked, do not request the same unchanged action again. Use recent_history and choose a different useful step.\n\n27. When Helix reports a stall or escalation, change strategy instead of repeating the previous action.\n\n28. Model/protocol errors are model failures. They are not evidence that the source-code fix itself is wrong.\n\n29. Do not repeatedly scan the repository when the file list is already present and no files have changed.\n\n30. When starting from an empty project, create the minimum useful project structure, then test it early rather than repeatedly rescanning.\n\nUseful tools include list_files, read_file, search_text, hash_file, create_file, create_file_chunk, patch_file, run_command, git_diff, and finish.\n",
+          "expected_matches": 1
+        }
+      ]
+    },
+    {
+      "path": "tests/test_helix.py",
+      "sha256": "b8213bdef60fcb4377d243bfb554d9a3053c25f5baf0bb2fd42e570c7eeec33f",
+      "edits": [
+        {
+          "op": "insert_before",
+          "anchor": "if __name__ == \"__main__\":\n",
+          "content": "\n    def test_workspace_ignores_patchforge(self):\n        with tempfile.TemporaryDirectory() as tmp:\n            root = Path(tmp)\n            (root / \"app.py\").write_text(\"print('ok')\\n\", encoding=\"utf-8\")\n            checkpoint = root / \".patchforge\" / \"checkpoints\" / \"abc\"\n            checkpoint.mkdir(parents=True)\n            (checkpoint / \"old.py\").write_text(\"old\\n\", encoding=\"utf-8\")\n\n            files = helix.Workspace(root).list_files()\n\n            self.assertIn(\"app.py\", files)\n            self.assertFalse(\n                any(path.startswith(\".patchforge/\") for path in files)\n            )\n\n    def test_chunked_file_creation(self):\n        with tempfile.TemporaryDirectory() as tmp:\n            root = Path(tmp)\n            workspace = helix.Workspace(root)\n\n            self.assertIsNone(\n                workspace.create_file_chunk(\"app.py\", \"def main():\\n\", \"start\")\n            )\n            self.assertIsNone(\n                workspace.create_file_chunk(\"app.py\", \"    print(\", \"append\")\n            )\n            digest = workspace.create_file_chunk(\n                \"app.py\",\n                \"'hello')\\n\",\n                \"finish\",\n            )\n\n            self.assertEqual(len(digest), 64)\n            self.assertEqual(\n                (root / \"app.py\").read_text(encoding=\"utf-8\"),\n                \"def main():\\n    print('hello')\\n\",\n            )\n\n    def test_router_escalates_when_stalled(self):\n        config = helix.HelixConfig(\n            patchforge_cli=\"\",\n            max_steps=0,\n            command_timeout_seconds=10,\n            models={\n                \"main\": helix.ModelSpec(\"ollama\", \"main\"),\n                \"large\": helix.ModelSpec(\"ollama\", \"large\"),\n                \"remote\": helix.ModelSpec(\n                    \"openai_compatible\",\n                    \"remote\",\n                    enabled=True,\n                ),\n            },\n        )\n        router = helix.ModelRouter(config)\n        state = helix.AgentState(task=\"x\", project_root=Path(\".\"))\n\n        state.stall_level = 1\n        self.assertEqual(router.choose_role(state), \"large\")\n\n        state.stall_level = 2\n        self.assertEqual(router.choose_role(state), \"remote\")\n\n    def test_multiline_task_collection(self):\n        lines = iter(\n            [\n                \"Build an app.\",\n                \"Requirements:\",\n                \"- test it\",\n                \":end\",\n            ]\n        )\n\n        result = helix.collect_multiline_task(\n            lambda prompt: next(lines)\n        )\n\n        self.assertEqual(\n            result,\n            \"Build an app.\\nRequirements:\\n- test it\",\n        )\n\n",
+          "expected_matches": 1
+        }
+      ]
+    },
+    {
+      "path": "pyproject.toml",
+      "sha256": "d8caaefd157ba3cd3647846e1065109aef0f1ac8d77a72a65e5c1c02eca8b1b7",
+      "edits": [
+        {
+          "op": "replace",
+          "old": "version = \"0.2.0\"\n",
+          "new": "version = \"0.2.1\"\n",
+          "expected_matches": 1
+        }
+      ]
+    },
+    {
+      "path": "README.md",
+      "sha256": "2bce515715bbd6332814d6787730e2ad0504b6bf79c9910c04cd2332b3b7a1ac",
+      "edits": [
+        {
+          "op": "replace",
+          "old": "Current version: **v0.2.0**",
+          "new": "Current version: **v0.2.1**",
+          "expected_matches": 1
+        },
+        {
+          "op": "insert_after",
+          "anchor": "Helix is experimental software. Review diffs and run it only on repositories you are prepared to modify.\n",
+          "content": "\n\n## Reliability in v0.2.1\n\nHelix detects repeated no-progress actions and repeated unchanged failures. When a task stalls, it escalates from the main model to the configured large model and then to the optional remote model. If no configured model can make progress, Helix stops safely instead of looping forever.\n\n`max_steps = 0` means there is no hard step limit. Stall detection remains active and becomes the normal protection against runaway loops.\n\nLarge new files can be created incrementally with `create_file_chunk` using `start`, `append`, and `finish` modes, avoiding a single oversized JSON action.\n\nPatch Forge checkpoint directories are excluded from repository scans.\n\n## Multiline tasks\n\nAt the interactive prompt, enter `:task`, paste or type as many lines as needed, then enter `:end` on its own line to submit.\n",
+          "expected_matches": 1
+        }
+      ]
+    }
+  ],
+  "build": [
+    {
+      "type": "command",
+      "name": "Compile Helix",
+      "command": "python -m py_compile helix.py",
+      "expect_exit": 0,
+      "timeout_seconds": 60
+    }
+  ],
+  "verify": [
+    {
+      "type": "command",
+      "name": "Check resulting diff",
+      "command": "git diff --check",
+      "expect_exit": 0,
+      "timeout_seconds": 60
+    }
+  ],
+  "tests": [
+    {
+      "type": "command",
+      "name": "Run Helix unit tests",
+      "command": "python -m unittest discover -s tests -v",
+      "expect_exit": 0,
+      "timeout_seconds": 120,
+      "output_contains": "OK"
+    }
+  ],
+  "options": {
+    "rollback_on_verify_failure": true
+  }
+}

@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "name": "KnightBot SEE Branch-and-Bound Patch 2",
+  "files": [
+    {
+      "path": "src/search.cpp",
+      "sha256": "b20a4ff611d117710a3387f79cc0a02fde7459cf415ef3ce7bf398788ed1122b",
+      "edits": [
+        {
+          "op": "insert_after",
+          "anchor": "            if (\n                victim == '.'\n                ) {\n                return 0;\n            }\n",
+          "content": "\n\n            const int victimValue =\n                pieceValue(\n                    victim\n                );\n\n            const int targetRank =\n                rankOf(\n                    target\n                );\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "                const char oldTarget =\n                    board[target];\n\n\n                const char promotedAttacker =\n                    seePromotionPiece(\n                        attacker,\n                        target\n                    );\n\n\n                board[from] =\n                    '.';\n\n                board[target] =\n                    promotedAttacker;\n\n\n                if (\n                    !seeKingSafe(\n                        board,\n                        whiteToCapture\n                    )\n                    ) {\n                    board[from] =\n                        attacker;\n\n                    board[target] =\n                        oldTarget;\n\n                    continue;\n                }\n\n\n                int promotionBonus = 0;\n\n\n                if (\n                    promotedAttacker !=\n                    attacker\n                    ) {\n                    promotionBonus =\n                        pieceValue(\n                            promotedAttacker\n                        )\n                        -\n                        pieceValue(\n                            attacker\n                        );\n                }\n",
+          "new": "                const char promotedAttacker =\n                    seePromotionPiece(\n                        attacker,\n                        target\n                    );\n\n\n                int promotionBonus = 0;\n\n\n                if (\n                    promotedAttacker !=\n                    attacker\n                    ) {\n                    promotionBonus =\n                        pieceValue(\n                            promotedAttacker\n                        )\n                        -\n                        pieceValue(\n                            attacker\n                        );\n                }\n\n\n                const int upperBound =\n                    victimValue\n                    +\n                    promotionBonus;\n\n\n                if (\n                    upperBound <=\n                    bestGain\n                    ) {\n                    continue;\n                }\n\n\n                const char oldTarget =\n                    board[target];\n\n\n                board[from] =\n                    '.';\n\n                board[target] =\n                    promotedAttacker;\n\n\n                if (\n                    !seeKingSafe(\n                        board,\n                        whiteToCapture\n                    )\n                    ) {\n                    board[from] =\n                        attacker;\n\n                    board[target] =\n                        oldTarget;\n\n                    continue;\n                }\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "                const int gain =\n                    pieceValue(\n                        oldTarget\n                    )\n                    +\n                    promotionBonus\n                    -\n                    seeRecapture(\n                        board,\n                        target,\n                        !whiteToCapture\n                    );",
+          "new": "                const int gain =\n                    victimValue\n                    +\n                    promotionBonus\n                    -\n                    seeRecapture(\n                        board,\n                        target,\n                        !whiteToCapture\n                    );",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "                if (\n                    gain >\n                    bestGain\n                    ) {\n                    bestGain =\n                        gain;\n                }\n            }",
+          "new": "                if (\n                    gain >\n                    bestGain\n                    ) {\n                    bestGain =\n                        gain;\n                }\n\n\n                if (\n                    targetRank != 0 &&\n                    targetRank != 7 &&\n                    bestGain >= victimValue\n                    ) {\n                    return bestGain;\n                }\n            }",
+          "expected_matches": 1
+        }
+      ]
+    }
+  ],
+  "verify": [
+    "git diff --check"
+  ]
+}

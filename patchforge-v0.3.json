@@ -1,0 +1,157 @@
+{
+  "version": 2,
+  "name": "Patch Forge v0.3 - Proposed Diff and Build Test Pipeline",
+  "preflight": [
+    {
+      "type": "sha256",
+      "name": "Check backend baseline",
+      "path": "patchforge.py",
+      "equals": "4B95A29B02E8900798C124C8BB902C16160600E993223866BE74487A6B6A8EB4"
+    },
+    {
+      "type": "sha256",
+      "name": "Check GUI baseline",
+      "path": "patchforge_gui.py",
+      "equals": "F823E5679DC56A648B6C66D07ED16231321A86E42072A51C117CD90C30476ED9"
+    }
+  ],
+  "files": [
+    {
+      "path": "patchforge.py",
+      "sha256": "4B95A29B02E8900798C124C8BB902C16160600E993223866BE74487A6B6A8EB4",
+      "edits": [
+        {
+          "op": "insert_after",
+          "anchor": "import argparse\n",
+          "content": "import difflib\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "class WorkflowResult:\n    prepared: list[PreparedFile]\n    checkpoint: Path | None\n    preflight: list[CheckResult]\n    verify: list[CheckResult]\n    applied: bool\n    rolled_back: bool",
+          "new": "class WorkflowResult:\n    prepared: list[PreparedFile]\n    checkpoint: Path | None\n    preflight: list[CheckResult]\n    build: list[CheckResult]\n    verify: list[CheckResult]\n    tests: list[CheckResult]\n    applied: bool\n    rolled_back: bool",
+          "expected_matches": 1
+        },
+        {
+          "op": "insert_before",
+          "anchor": "def run_command_capture(\n",
+          "content": "def proposed_diff_text(\n    prepared: list[PreparedFile],\n) -> str:\n    chunks: list[str] = []\n\n    for item in prepared:\n        old_text = normalize_newlines(\n            item.original_bytes.decode(\"utf-8\")\n        )\n        new_text = normalize_newlines(\n            item.new_bytes.decode(\"utf-8\")\n        )\n\n        chunks.extend(\n            difflib.unified_diff(\n                old_text.splitlines(keepends=True),\n                new_text.splitlines(keepends=True),\n                fromfile=f\"a/{item.relative_path}\",\n                tofile=f\"b/{item.relative_path}\",\n                lineterm=\"\\n\",\n            )\n        )\n\n    return \"\".join(chunks)\n\n\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "insert_before",
+          "anchor": "def list_checkpoints(repo: Path) -> list[Path]:\n",
+          "content": "def run_build(\n    repo: Path,\n    spec: dict[str, Any],\n) -> list[CheckResult]:\n    entries = normalize_check_entries(\n        spec,\n        \"build\",\n    )\n\n    return run_checks(\n        repo,\n        entries,\n        \"build\",\n    )\n\n\ndef run_tests(\n    repo: Path,\n    spec: dict[str, Any],\n) -> list[CheckResult]:\n    entries = normalize_check_entries(\n        spec,\n        \"tests\",\n    )\n\n    return run_checks(\n        repo,\n        entries,\n        \"tests\",\n    )\n\n\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "    verify_results: list[CheckResult] = []\n\n    try:\n        verify_results = run_verification(\n            repo,\n            spec,\n        )\n\n    except Exception:\n        if get_rollback_on_verify_failure(\n            spec\n        ):\n            restore_checkpoint(\n                repo,\n                checkpoint,\n            )\n\n            raise PatchForgeError(\n                \"Post-apply verification failed. \"\n                \"Patch Forge automatically rolled \"\n                f\"back checkpoint {checkpoint.name}.\"\n            )\n\n        raise\n\n    return WorkflowResult(\n        prepared=prepared,\n        checkpoint=checkpoint,\n        preflight=preflight,\n        verify=verify_results,\n        applied=True,\n        rolled_back=False,\n    )",
+          "new": "    build_results: list[CheckResult] = []\n    verify_results: list[CheckResult] = []\n    test_results: list[CheckResult] = []\n\n    try:\n        build_results = run_build(\n            repo,\n            spec,\n        )\n\n        verify_results = run_verification(\n            repo,\n            spec,\n        )\n\n        test_results = run_tests(\n            repo,\n            spec,\n        )\n\n    except Exception as exc:\n        if get_rollback_on_verify_failure(\n            spec\n        ):\n            restore_checkpoint(\n                repo,\n                checkpoint,\n            )\n\n            raise PatchForgeError(\n                \"Post-apply build/verification/test phase failed. \"\n                \"Patch Forge automatically rolled \"\n                f\"back checkpoint {checkpoint.name}.\\n\"\n                f\"Original error: {exc}\"\n            ) from exc\n\n        raise\n\n    return WorkflowResult(\n        prepared=prepared,\n        checkpoint=checkpoint,\n        preflight=preflight,\n        build=build_results,\n        verify=verify_results,\n        tests=test_results,\n        applied=True,\n        rolled_back=False,\n    )",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "    print_plan(\n        prepared\n    )\n\n    print(\n        \"Dry run only. No files were changed.\"\n    )",
+          "new": "    print_plan(\n        prepared\n    )\n\n    diff = proposed_diff_text(\n        prepared\n    )\n\n    print()\n    print(\"Proposed diff:\")\n    print()\n\n    if diff:\n        print(\n            diff,\n            end=(\n                \"\"\n                if diff.endswith(\"\\n\")\n                else \"\\n\"\n            ),\n        )\n    else:\n        print(\"(No textual diff.)\")\n\n    print(\n        \"Dry run only. No files were changed.\"\n    )",
+          "expected_matches": 1
+        }
+      ]
+    },
+    {
+      "path": "patchforge_gui.py",
+      "sha256": "F823E5679DC56A648B6C66D07ED16231321A86E42072A51C117CD90C30476ED9",
+      "edits": [
+        {
+          "op": "replace",
+          "old": "        self.diff_editor.setFont(\n            font\n        )\n\n        self.output_editor = QPlainTextEdit()",
+          "new": "        self.diff_editor.setFont(\n            font\n        )\n\n        self.proposed_diff_editor = QPlainTextEdit()\n        self.proposed_diff_editor.setReadOnly(\n            True\n        )\n        self.proposed_diff_editor.setFont(\n            font\n        )\n\n        self.output_editor = QPlainTextEdit()",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "        DiffHighlighter(\n            self.diff_editor.document()\n        )",
+          "new": "        DiffHighlighter(\n            self.diff_editor.document()\n        )\n\n        DiffHighlighter(\n            self.proposed_diff_editor.document()\n        )",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "        self.tabs.addTab(\n            self.diff_editor,\n            \"Diff\",\n        )\n\n        self.tabs.addTab(\n            self.output_editor,\n            \"Output\",\n        )",
+          "new": "        self.tabs.addTab(\n            self.proposed_diff_editor,\n            \"Proposed Diff\",\n        )\n\n        self.tabs.addTab(\n            self.diff_editor,\n            \"Repository Diff\",\n        )\n\n        self.tabs.addTab(\n            self.output_editor,\n            \"Output\",\n        )",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "        self.status_preflight = QLabel()\n        self.status_dryrun = QLabel()\n        self.status_apply = QLabel()\n        self.status_verify = QLabel()\n\n        self.pipeline_labels = [\n            (\n                \"Preflight\",\n                self.status_preflight,\n            ),\n            (\n                \"Dry run\",\n                self.status_dryrun,\n            ),\n            (\n                \"Apply\",\n                self.status_apply,\n            ),\n            (\n                \"Verification\",\n                self.status_verify,\n            ),\n        ]",
+          "new": "        self.status_preflight = QLabel()\n        self.status_dryrun = QLabel()\n        self.status_apply = QLabel()\n        self.status_build = QLabel()\n        self.status_verify = QLabel()\n        self.status_tests = QLabel()\n\n        self.pipeline_labels = [\n            (\n                \"Preflight\",\n                self.status_preflight,\n            ),\n            (\n                \"Dry run\",\n                self.status_dryrun,\n            ),\n            (\n                \"Apply\",\n                self.status_apply,\n            ),\n            (\n                \"Build\",\n                self.status_build,\n            ),\n            (\n                \"Verification\",\n                self.status_verify,\n            ),\n            (\n                \"Tests\",\n                self.status_tests,\n            ),\n        ]",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "            prepared = patchforge.prepare_patch(\n                repo,\n                spec,\n            )\n\n            return (\n                preflight,\n                prepared,\n            )",
+          "new": "            prepared = patchforge.prepare_patch(\n                repo,\n                spec,\n            )\n\n            proposed = patchforge.proposed_diff_text(\n                prepared\n            )\n\n            return (\n                preflight,\n                prepared,\n                proposed,\n            )",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "            preflight, prepared = result\n",
+          "new": "            preflight, prepared, proposed = result\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "            lines = [\n                \"Validation PASSED.\",\n                \"\",\n            ]",
+          "new": "            self.proposed_diff_editor.setPlainText(\n                (\n                    proposed\n                    if proposed\n                    else\n                    \"No textual changes.\"\n                )\n            )\n\n            self.tabs.setCurrentWidget(\n                self.proposed_diff_editor\n            )\n\n            lines = [\n                \"Validation PASSED.\",\n                \"Proposed diff generated without writing files.\",\n                \"\",\n            ]",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "                \"Patch Forge will run preflight \"\n                \"checks, perform a deterministic \"\n                \"dry run, create a checkpoint, \"\n                \"apply the patch, and then run all \"\n                \"verification tests.\\n\\nContinue?\"",
+          "new": "                \"Patch Forge will run preflight checks, \"\n                \"perform a deterministic dry run, create \"\n                \"a checkpoint, apply the patch, run any \"\n                \"configured build commands, verification \"\n                \"checks, and tests.\\n\\nContinue?\"",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "            self.set_status(\n                self.status_apply,\n                True,\n                \"Applied\",\n            )\n\n            self.set_status(\n                self.status_verify,\n",
+          "new": "            self.set_status(\n                self.status_apply,\n                True,\n                \"Applied\",\n            )\n\n            self.set_status(\n                self.status_build,\n                True,\n                (\n                    f\"Passed ({len(result.build)} commands)\"\n                    if result.build\n                    else\n                    \"Not configured\"\n                ),\n            )\n\n            self.set_status(\n                self.status_verify,\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "insert_after",
+          "anchor": "            self.set_status(\n                self.status_verify,\n                True,\n                (\n                    f\"Passed \"\n                    f\"({len(result.verify)} checks)\"\n                ),\n            )\n",
+          "content": "\n            self.set_status(\n                self.status_tests,\n                True,\n                (\n                    f\"Passed ({len(result.tests)} tests)\"\n                    if result.tests\n                    else\n                    \"Not configured\"\n                ),\n            )\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "insert_before",
+          "anchor": "            for check in result.verify:\n",
+          "content": "            for check in result.build:\n                self.append_output(\n                    f\"[BUILD PASS] {check.name}\"\n                )\n\n                if check.output:\n                    self.append_output(\n                        check.output.rstrip()\n                    )\n\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "insert_after",
+          "anchor": "            for check in result.verify:\n                self.append_output(\n                    f\"[PASS] {check.name}\"\n                )\n\n                if check.output:\n                    self.append_output(\n                        check.output.rstrip()\n                    )\n",
+          "content": "\n            for check in result.tests:\n                self.append_output(\n                    f\"[TEST PASS] {check.name}\"\n                )\n\n                if check.output:\n                    self.append_output(\n                        check.output.rstrip()\n                    )\n",
+          "expected_matches": 1
+        }
+      ]
+    }
+  ],
+  "verify": [
+    {
+      "type": "command",
+      "name": "Compile Patch Forge",
+      "command": "python -m py_compile patchforge.py patchforge_gui.py",
+      "expect_exit": 0
+    },
+    {
+      "type": "command",
+      "name": "Verify v0.3 backend API",
+      "command": "python -c \"import patchforge; assert hasattr(patchforge, 'proposed_diff_text'); assert hasattr(patchforge, 'run_build'); assert hasattr(patchforge, 'run_tests')\"",
+      "expect_exit": 0
+    }
+  ],
+  "options": {
+    "rollback_on_verify_failure": true
+  }
+}

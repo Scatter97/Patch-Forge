@@ -1,0 +1,28 @@
+{
+    "files":  [
+                  {
+                      "path":  "package.json",
+                      "sha256":  "6f39ee100ea31ef12d22380a12eb89edea11cc36a57e96192b6f17b7eba8f2c8",
+                      "edits":  [
+                                    {
+                                        "expected_matches":  1,
+                                        "new":  "\"version\": \"0.1.5\"",
+                                        "op":  "replace",
+                                        "old":  "\"version\": \"0.1.4\""
+                                    },
+                                    {
+                                        "expected_matches":  1,
+                                        "new":  "\"icon\": \"build/icon.png\"",
+                                        "op":  "replace",
+                                        "old":  "\"icon\": \"build/icon.svg\""
+                                    }
+                                ]
+                  }
+              ],
+    "name":  "meta-ai-desktop-v0.1.5",
+    "version":  2,
+    "verify":  [
+                   "node -e \"const p=require(\u0027./package.json\u0027);if(p.version!==\u00270.1.5\u0027)process.exit(1);if(p.build.win.icon!==\u0027build/icon.png\u0027)process.exit(1);console.log(\u0027Package configuration OK\u0027);\"",
+                   "powershell -NoProfile -Command \"if (!(Test-Path \u0027build/icon.png\u0027)) { Write-Error \u0027Missing build/icon.png\u0027; exit 1 }; Write-Host \u0027Meta AI PNG icon OK\u0027\""
+               ]
+}

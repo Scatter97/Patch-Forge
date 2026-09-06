@@ -1,0 +1,55 @@
+{
+  "version": 2,
+  "name": "KnightBot thinkrange command",
+  "preflight": [
+    {
+      "type": "sha256",
+      "name": "Check main.cpp baseline",
+      "path": "src/main.cpp",
+      "equals": "58271658405c24f40d92a3644a5cfb185b87efc736ef666f21ce7cb7790dd2f5"
+    },
+    {
+      "type": "command",
+      "name": "Check current diff whitespace",
+      "command": "git diff --check",
+      "expect_exit": 0
+    }
+  ],
+  "files": [
+    {
+      "path": "src/main.cpp",
+      "sha256": "58271658405c24f40d92a3644a5cfb185b87efc736ef666f21ce7cb7790dd2f5",
+      "edits": [
+        {
+          "op": "replace",
+          "old": "            \"  think <milliseconds>\\n\"\n            \"  playbest <depth>\\n\"",
+          "new": "            \"  think <milliseconds>\\n\"\n            \"  thinkrange <soft_ms> <hard_ms>\\n\"\n            \"  playbest <depth>\\n\"",
+          "expected_matches": 1
+        },
+        {
+          "op": "insert_before",
+          "anchor": "        // ====================================================\n        // PLAY BEST\n        // ====================================================\n\n        else if (\n            command ==\n            \"playbest\"\n            ) {",
+          "content": "        // ====================================================\n        // THINK RANGE\n        // ====================================================\n\n        else if (\n            command ==\n            \"thinkrange\"\n            ) {\n            int softMilliseconds = 0;\n            int hardMilliseconds = 0;\n            std::string extraArgument;\n\n            if (\n                !(input >> softMilliseconds >> hardMilliseconds)\n                ||\n                softMilliseconds < 1\n                ||\n                hardMilliseconds < softMilliseconds\n                ||\n                (input >> extraArgument)\n                ) {\n                std::cout <<\n                    \"Usage: thinkrange <soft_ms> <hard_ms>\\n\";\n\n                continue;\n            }\n\n\n            std::cout <<\n                \"KnightBot thinking with soft deadline \" <<\n                softMilliseconds <<\n                \" ms and hard deadline \" <<\n                hardMilliseconds <<\n                \" ms...\\n\";\n\n\n            const SearchResult result =\n                chess::searchBestMoveTimed(\n                    position,\n                    softMilliseconds,\n                    hardMilliseconds\n                );\n\n\n            printHumanSearchResult(\n                position,\n                result\n            );\n        }\n\n\n",
+          "expected_matches": 1
+        }
+      ]
+    }
+  ],
+  "verify": [
+    {
+      "type": "command",
+      "name": "Check resulting diff whitespace",
+      "command": "git diff --check",
+      "expect_exit": 0
+    },
+    {
+      "type": "command",
+      "name": "Verify thinkrange command exists",
+      "command": "python -c \"from pathlib import Path; t=Path(r'src/main.cpp').read_text(encoding='utf-8'); assert 'thinkrange <soft_ms> <hard_ms>' in t; assert 'command ==\\n            \\\"thinkrange\\\"' in t; assert 'softMilliseconds,' in t; assert 'hardMilliseconds' in t\"",
+      "expect_exit": 0
+    }
+  ],
+  "options": {
+    "rollback_on_verify_failure": true
+  }
+}

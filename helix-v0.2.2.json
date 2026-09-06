@@ -1,0 +1,225 @@
+{
+  "version": 2,
+  "name": "Helix v0.2.2 creation and cancellation reliability",
+  "preflight": [
+    {
+      "type": "sha256",
+      "name": "Check helix.py baseline",
+      "path": "helix.py",
+      "equals": "baef6b912e30266df4eda2972ffbc20b02a6392482c2647b9ed0859fa97bf2bf"
+    },
+    {
+      "type": "sha256",
+      "name": "Check coder prompt baseline",
+      "path": "prompts/coder.txt",
+      "equals": "7948b0db2d4b59e7ec06d43d8a2ffd1054afd35a80e559fa3616fa77a849ca8f"
+    },
+    {
+      "type": "sha256",
+      "name": "Check tests baseline",
+      "path": "tests/test_helix.py",
+      "equals": "1bfbef71cb37f986729ea72d94dcca3c69742d452243297bc2c59b697b8d82e8"
+    },
+    {
+      "type": "sha256",
+      "name": "Check pyproject baseline",
+      "path": "pyproject.toml",
+      "equals": "000124aebab7df14834d0d4465017685fda71bc7ae07153a3daaac5be8963128"
+    },
+    {
+      "type": "sha256",
+      "name": "Check README baseline",
+      "path": "README.md",
+      "equals": "e687b16dcdbf626d7537604a7e53b7dbf8057f69a17a77b211564257d8eb88ac"
+    }
+  ],
+  "files": [
+    {
+      "path": "helix.py",
+      "sha256": "baef6b912e30266df4eda2972ffbc20b02a6392482c2647b9ed0859fa97bf2bf",
+      "edits": [
+        {
+          "op": "replace",
+          "old": "VERSION = \"0.2.1\"\n",
+          "new": "VERSION = \"0.2.2\"\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "insert_after",
+          "anchor": "import os\n",
+          "content": "import queue\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "insert_after",
+          "anchor": "import subprocess\n",
+          "content": "import threading\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "insert_before",
+          "anchor": "class ModelBackend:\n",
+          "content": "def interruptible_call(fn):\n    results: queue.Queue[tuple[bool, Any]] = queue.Queue(maxsize=1)\n\n    def worker() -> None:\n        try:\n            results.put((True, fn()))\n        except BaseException as exc:\n            results.put((False, exc))\n\n    thread = threading.Thread(\n        target=worker,\n        name=\"helix-model-request\",\n        daemon=True,\n    )\n    thread.start()\n\n    while True:\n        try:\n            ok, value = results.get(timeout=0.1)\n            break\n        except queue.Empty:\n            continue\n\n    if ok:\n        return value\n    raise value\n\n\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "                raw = self.backend(candidate).complete(system, user)\n",
+          "new": "                backend = self.backend(candidate)\n                raw = interruptible_call(\n                    lambda: backend.complete(system, user)\n                )\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "insert_before",
+          "anchor": "    def resolve(self, relative: str) -> Path:\n",
+          "content": "    def normalize_relative(self, value: str) -> str:\n        path = self.resolve(value)\n        return path.relative_to(self.root).as_posix()\n\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "        target = self.resolve(relative)\n        if target.exists():\n            raise HelixError(\n                f\"Refusing to overwrite existing file {relative}; use Patch Forge for modifications.\"\n            )\n\n        staging_root = (self.root / \".helix\" / \"staging\").resolve()\n",
+          "new": "        target = self.resolve(relative)\n        normalized = target.relative_to(self.root).as_posix()\n        if target.exists():\n            raise HelixError(\n                f\"Refusing to overwrite existing file {normalized}; use Patch Forge for modifications.\"\n            )\n\n        staging_root = (self.root / \".helix\" / \"staging\").resolve()\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "        stage = (staging_root / f\"{relative}.part\").resolve()\n",
+          "new": "        stage = (staging_root / f\"{normalized}.part\").resolve()\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "            raise HelixError(f\"Invalid staged file path: {relative}\") from exc\n",
+          "new": "            raise HelixError(f\"Invalid staged file path: {normalized}\") from exc\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "                f\"No staged file exists for {relative}; begin with mode=start.\"\n",
+          "new": "                f\"No staged file exists for {normalized}; begin with mode=start.\"\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "                    \"available_tools\": TOOLS,\n",
+          "new": "                    \"available_tools\": TOOLS,\n                    \"create_file_chunk_hard_limit\": self.config.max_create_chunk_chars,\n                    \"create_file_chunk_recommended_size\": 2500,\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "            if len(content) > self.config.max_create_chunk_chars:\n                return (\n                    False,\n                    \"create_file content is too large for one model action; \"\n                    \"use create_file_chunk with start/append/finish.\",\n                )\n",
+          "new": "            if len(content) > self.config.max_create_chunk_chars:\n                return (\n                    False,\n                    f\"create_file content is too large ({len(content)} characters). \"\n                    f\"Hard maximum is {self.config.max_create_chunk_chars}. \"\n                    \"Retry with create_file_chunk and keep each chunk at or below 2500 characters.\",\n                )\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "            if len(content) > self.config.max_create_chunk_chars:\n                return (\n                    False,\n                    f\"Chunk exceeds {self.config.max_create_chunk_chars} characters; \"\n                    \"send a smaller chunk.\",\n                )\n",
+          "new": "            if len(content) > self.config.max_create_chunk_chars:\n                return (\n                    False,\n                    f\"Chunk too large: {len(content)} characters. \"\n                    f\"Hard maximum is {self.config.max_create_chunk_chars}. \"\n                    \"Retry the same file operation with a chunk at or below 2500 characters.\",\n                )\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "            relative = str(args[\"path\"])\n            content = str(args.get(\"content\", \"\"))\n            mode = str(args.get(\"mode\", \"\")).lower().strip()\n",
+          "new": "            relative = self.workspace.normalize_relative(str(args[\"path\"]))\n            content = str(args.get(\"content\", \"\"))\n            mode = str(args.get(\"mode\", \"\")).lower().strip()\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "    def task_start(self, task: str) -> None:\n        print()\n        print(f\"  TASK      {task}\")\n        print(\"  \" + \"-\" * 64)\n",
+          "new": "    def task_start(self, task: str) -> None:\n        print()\n        first_line = next(\n            (line.strip() for line in task.splitlines() if line.strip()),\n            \"Task\",\n        )\n        suffix = \" [multiline]\" if \"\\n\" in task else \"\"\n        print(f\"  TASK      {first_line}{suffix}\")\n        print(\"  \" + \"-\" * 64)\n",
+          "expected_matches": 1
+        }
+      ]
+    },
+    {
+      "path": "prompts/coder.txt",
+      "sha256": "7948b0db2d4b59e7ec06d43d8a2ffd1054afd35a80e559fa3616fa77a849ca8f",
+      "edits": [
+        {
+          "op": "replace",
+          "old": "25. For large new files, do not put the whole file into one giant JSON string. Use create_file_chunk. Start with mode=start, send one or more mode=append chunks, then send mode=finish. Keep each chunk comfortably below the configured chunk-size limit.\n",
+          "new": "25. For large new files, do not put the whole file into one giant JSON string. Use create_file_chunk. Start with mode=start, send one or more mode=append chunks, then send mode=finish. TARGET 2000-2500 characters per chunk. NEVER exceed the create_file_chunk_hard_limit supplied in the task payload.\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "insert_after",
+          "anchor": "30. When starting from an empty project, create the minimum useful project structure, then test it early rather than repeatedly rescanning.\n",
+          "content": "\n31. Tool paths should normally be project-relative. If you accidentally receive or construct an absolute path inside the project, Helix may normalize it automatically. Never use paths outside project_root.\n\n32. If Helix reports that a create_file or create_file_chunk payload is too large, retry the SAME intended file operation immediately with smaller chunks. Do not go back to list_files or unrelated inspection.\n\n33. A successful create_file_chunk start or append is progress. Continue writing the remaining chunks instead of rescanning the repository.\n",
+          "expected_matches": 1
+        }
+      ]
+    },
+    {
+      "path": "tests/test_helix.py",
+      "sha256": "1bfbef71cb37f986729ea72d94dcca3c69742d452243297bc2c59b697b8d82e8",
+      "edits": [
+        {
+          "op": "insert_before",
+          "anchor": "if __name__ == \"__main__\":\n",
+          "content": "\n    def test_normalize_relative_accepts_absolute_in_project_path(self):\n        with tempfile.TemporaryDirectory() as tmp:\n            root = Path(tmp)\n            workspace = helix.Workspace(root)\n            absolute = root / \"src\" / \"app.py\"\n\n            self.assertEqual(\n                workspace.normalize_relative(str(absolute)),\n                \"src/app.py\",\n            )\n\n    def test_normalize_relative_rejects_absolute_outside_project(self):\n        with tempfile.TemporaryDirectory() as tmp:\n            root = Path(tmp) / \"project\"\n            root.mkdir()\n            workspace = helix.Workspace(root)\n            outside = Path(tmp) / \"outside.py\"\n\n            with self.assertRaises(helix.HelixError):\n                workspace.normalize_relative(str(outside))\n\n    def test_chunked_creation_accepts_absolute_project_path(self):\n        with tempfile.TemporaryDirectory() as tmp:\n            root = Path(tmp)\n            workspace = helix.Workspace(root)\n            target = root / \"src\" / \"app.py\"\n\n            workspace.create_file_chunk(\n                str(target),\n                \"print(\",\n                \"start\",\n            )\n            digest = workspace.create_file_chunk(\n                str(target),\n                \"'ok')\\n\",\n                \"finish\",\n            )\n\n            self.assertEqual(len(digest), 64)\n            self.assertEqual(\n                target.read_text(encoding=\"utf-8\"),\n                \"print('ok')\\n\",\n            )\n\n    def test_oversized_chunk_reports_actual_size_and_retry_target(self):\n        with tempfile.TemporaryDirectory() as tmp:\n            root = Path(tmp)\n            prompt = root / \"prompt.txt\"\n            prompt.write_text(\"prompt\\n\", encoding=\"utf-8\")\n            config = helix.HelixConfig(\n                patchforge_cli=\"\",\n                max_steps=0,\n                command_timeout_seconds=10,\n                models={\"main\": helix.ModelSpec(\"ollama\", \"main\")},\n                max_create_chunk_chars=10,\n            )\n            agent = helix.HelixAgent(root, config, prompt)\n            state = helix.AgentState(task=\"test\", project_root=root)\n\n            ok, summary = agent.execute(\n                \"create_file_chunk\",\n                {\n                    \"path\": \"app.py\",\n                    \"mode\": \"start\",\n                    \"content\": \"12345678901\",\n                },\n                state,\n            )\n\n            self.assertFalse(ok)\n            self.assertIn(\"11 characters\", summary)\n            self.assertIn(\"2500\", summary)\n\n    def test_interruptible_call_returns_value(self):\n        self.assertEqual(\n            helix.interruptible_call(lambda: \"ok\"),\n            \"ok\",\n        )\n\n",
+          "expected_matches": 1
+        }
+      ]
+    },
+    {
+      "path": "pyproject.toml",
+      "sha256": "000124aebab7df14834d0d4465017685fda71bc7ae07153a3daaac5be8963128",
+      "edits": [
+        {
+          "op": "replace",
+          "old": "version = \"0.2.1\"\n",
+          "new": "version = \"0.2.2\"\n",
+          "expected_matches": 1
+        }
+      ]
+    },
+    {
+      "path": "README.md",
+      "sha256": "e687b16dcdbf626d7537604a7e53b7dbf8057f69a17a77b211564257d8eb88ac",
+      "edits": [
+        {
+          "op": "replace",
+          "old": "Current version: **v0.2.1**",
+          "new": "Current version: **v0.2.2**",
+          "expected_matches": 1
+        },
+        {
+          "op": "insert_after",
+          "anchor": "At the interactive prompt, enter `:task`, paste or type as many lines as needed, then enter `:end` on its own line to submit.\n",
+          "content": "\n\n## Creation reliability in v0.2.2\n\nHelix normalizes absolute paths that still point inside the active project, making chunked creation tolerant of either `src/app.py` or an absolute in-project path. Paths outside the project remain rejected.\n\nLarge generated files should use approximately 2000-2500 characters per `create_file_chunk` action. The hard configured limit remains enforced, and oversized actions now report their actual size and explicit retry instructions.\n\nModel requests are wrapped in an interruptible polling layer so Ctrl+C can return control to the interactive shell without waiting for the entire model HTTP timeout. The underlying abandoned request runs only in a daemon thread and cannot block process shutdown.\n\nMultiline tasks are no longer printed in full a second time when execution starts; the task header displays only the first non-empty line.\n",
+          "expected_matches": 1
+        }
+      ]
+    }
+  ],
+  "build": [
+    {
+      "type": "command",
+      "name": "Compile Helix",
+      "command": "python -m py_compile helix.py",
+      "expect_exit": 0,
+      "timeout_seconds": 60
+    }
+  ],
+  "verify": [
+    {
+      "type": "command",
+      "name": "Check resulting diff",
+      "command": "git diff --check",
+      "expect_exit": 0,
+      "timeout_seconds": 60
+    }
+  ],
+  "tests": [
+    {
+      "type": "command",
+      "name": "Run Helix unit tests",
+      "command": "python -m unittest discover -s tests -v",
+      "expect_exit": 0,
+      "timeout_seconds": 120,
+      "output_contains": "OK"
+    }
+  ],
+  "options": {
+    "rollback_on_verify_failure": true
+  }
+}

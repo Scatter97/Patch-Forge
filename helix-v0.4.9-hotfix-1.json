@@ -1,0 +1,39 @@
+{
+  "version": 2,
+  "name": "Helix v0.4.9 stale validation test hotfix",
+  "preflight": [
+    {
+      "type": "sha256",
+      "name": "Check tests baseline",
+      "path": "tests/test_helix.py",
+      "equals": "d7f37d381b1a6d8fa8b88fe2bb91b1684344c9f41b9db286ddb67ca3a58b6666"
+    }
+  ],
+  "files": [
+    {
+      "path": "tests/test_helix.py",
+      "sha256": "d7f37d381b1a6d8fa8b88fe2bb91b1684344c9f41b9db286ddb67ca3a58b6666",
+      "edits": [
+        {
+          "op": "replace",
+          "old": "\"The file remains staged.\",",
+          "new": "\"automatic full-file repair attempts.\",",
+          "expected_matches": 1
+        }
+      ]
+    }
+  ],
+  "tests": [
+    {
+      "type": "command",
+      "name": "Run Helix tests",
+      "command": "python -m unittest discover -s tests -v",
+      "expect_exit": 0,
+      "timeout_seconds": 120,
+      "output_contains": "OK"
+    }
+  ],
+  "options": {
+    "rollback_on_verify_failure": true
+  }
+}

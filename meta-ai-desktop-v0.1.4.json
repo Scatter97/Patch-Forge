@@ -1,0 +1,22 @@
+{
+    "files":  [
+                  {
+                      "path":  "package.json",
+                      "sha256":  "4fd2418c9b97fda21cea2b9e5845dea88731a62ac3921eef64f317c71f1c581f",
+                      "edits":  [
+                                    {
+                                        "expected_matches":  1,
+                                        "new":  "\"version\": \"0.1.4\"",
+                                        "op":  "replace",
+                                        "old":  "\"version\": \"0.1.3\""
+                                    }
+                                ]
+                  }
+              ],
+    "name":  "meta-ai-desktop-v0.1.4",
+    "version":  2,
+    "verify":  [
+                   "node -e \"const p=require(\u0027./package.json\u0027);if(p.version!==\u00270.1.4\u0027)process.exit(1);console.log(\u0027Version OK\u0027);\"",
+                   "powershell -NoProfile -Command \"if (!(Test-Path \u0027build/icon.svg\u0027)) { exit 1 }; Write-Host \u0027Official Meta AI icon OK\u0027\""
+               ]
+}

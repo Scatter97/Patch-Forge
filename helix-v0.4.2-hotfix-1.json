@@ -1,0 +1,48 @@
+{
+  "version": 2,
+  "name": "Helix v0.4.2 config syntax hotfix",
+  "preflight": [
+    {
+      "type": "sha256",
+      "name": "Check helix.py baseline",
+      "path": "helix.py",
+      "equals": "69fc9619a511f99afbf890579a372e0079ac7cb4e90a613ae00744c274d5b121"
+    }
+  ],
+  "files": [
+    {
+      "path": "helix.py",
+      "sha256": "69fc9619a511f99afbf890579a372e0079ac7cb4e90a613ae00744c274d5b121",
+      "edits": [
+        {
+          "op": "replace",
+          "old": "        # Number of consecutive unusable model responses before\n        # that role is disabled for the remainder of the current task.\n        self.model_circuit_breaker_failures = max(\n            1,\n            self.model_circuit_breaker_failures,\n        )\n",
+          "new": "        model_circuit_breaker_failures=max(\n            1,\n            int(runtime.get(\"model_circuit_breaker_failures\", 3)),\n        ),\n",
+          "expected_matches": 1
+        }
+      ]
+    }
+  ],
+  "build": [
+    {
+      "type": "command",
+      "name": "Compile Helix",
+      "command": "python -m py_compile helix.py",
+      "expect_exit": 0,
+      "timeout_seconds": 60
+    }
+  ],
+  "tests": [
+    {
+      "type": "command",
+      "name": "Run Helix tests",
+      "command": "python -m unittest discover -s tests -v",
+      "expect_exit": 0,
+      "timeout_seconds": 120,
+      "output_contains": "OK"
+    }
+  ],
+  "options": {
+    "rollback_on_verify_failure": true
+  }
+}

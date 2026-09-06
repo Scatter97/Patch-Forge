@@ -1,0 +1,121 @@
+{
+  "version": 2,
+  "name": "Helix v0.4.10 deterministic empty staged-file recovery",
+  "preflight": [
+    {
+      "type": "sha256",
+      "name": "Check helix.py",
+      "path": "helix.py",
+      "equals": "7f124a04af1fa7c9345241e796a4bc61f20c7e5c824a2878efa55fd0bb2a0aae"
+    },
+    {
+      "type": "sha256",
+      "name": "Check tests/test_helix.py",
+      "path": "tests/test_helix.py",
+      "equals": "b1b861dd3212c6c885979953ba9ddcb233ac822709901703fbfcc7677504d61d"
+    },
+    {
+      "type": "sha256",
+      "name": "Check pyproject.toml",
+      "path": "pyproject.toml",
+      "equals": "08c259f52aa58bd571271cb043d07509f6665f0fd59d60ee79a1d3d3bfe70be6"
+    },
+    {
+      "type": "sha256",
+      "name": "Check README.md",
+      "path": "README.md",
+      "equals": "4ae72eb12328c81b4aeabe1ca1919118296a9333938973916ab9889a614324b4"
+    }
+  ],
+  "files": [
+    {
+      "path": "helix.py",
+      "sha256": "7f124a04af1fa7c9345241e796a4bc61f20c7e5c824a2878efa55fd0bb2a0aae",
+      "edits": [
+        {
+          "op": "replace",
+          "old": "VERSION = \"0.4.9\"\n",
+          "new": "VERSION = \"0.4.10\"\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "    task = state.get(\"task\", \"\")\n    staged_files = state.get(\"staged_files\", [])\n    active_staged_file = state.get(\"active_staged_file\")\n    recent_history = state.get(\"recent_history\", [])\n\n    context = {\n        \"task\": task,\n        \"target_path\": path,\n        \"active_staged_file\": active_staged_file,\n        \"staged_files\": staged_files,\n        \"recent_history\": (\n            recent_history[-6:]\n            if isinstance(recent_history, list)\n            else []\n        ),\n    }\n",
+          "new": "    task = state.get(\"task\", \"\")\n    staged_files = state.get(\"staged_files\", [])\n    active_staged_file = state.get(\"active_staged_file\")\n    recent_history = state.get(\"recent_history\", [])\n    last_completed_file = state.get(\"last_completed_file\", \"\")\n    changed_files = state.get(\"changed_files\", [])\n    remaining_requirements = state.get(\n        \"remaining_requirements_instruction\",\n        \"\",\n    )\n\n    filename = Path(path).name.lower()\n    is_test_file = (\n        filename.startswith(\"test_\")\n        or filename.endswith(\"_test.py\")\n    )\n\n    target_instruction = \"\"\n\n    if is_test_file:\n        target_instruction = (\n            \"This target is a pytest test file. Generate real \"\n            \"pytest-discoverable test_* functions. Import and test the \"\n            \"completed application implementation rather than rewriting \"\n            \"the application in this file.\"\n        )\n\n        if last_completed_file:\n            target_instruction += (\n                f\" The implementation to test is \"\n                f\"{last_completed_file}.\"\n            )\n\n    context = {\n        \"task\": task,\n        \"target_path\": path,\n        \"active_staged_file\": active_staged_file,\n        \"staged_files\": staged_files,\n        \"last_completed_file\": last_completed_file,\n        \"changed_files\": changed_files,\n        \"remaining_requirements\": remaining_requirements,\n        \"target_instruction\": target_instruction,\n        \"recent_history\": (\n            recent_history[-6:]\n            if isinstance(recent_history, list)\n            else []\n        ),\n    }\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "                        if active_staged:\n                            staged_content = state.staged_files.get(\n                                active_staged,\n                                \"\",\n                            )\n\n                            if staged_content:\n                                validation_failure = (\n                                    isinstance(\n                                        state.last_tool_failure,\n                                        dict,\n                                    )\n                                    and state.last_tool_failure.get(\"tool\")\n                                    == \"finish_file\"\n                                    and state.last_tool_failure.get(\"path\")\n                                    == active_staged\n                                    and state.last_tool_failure.get(\"stage\")\n                                    == \"staged_validation\"\n                                )\n\n                                if not validation_failure:\n                                    print(\n                                        f\"[CORE] staged recovery -> finish_file \"\n                                        f\"{active_staged}\"\n                                    )\n                                    tool = \"finish_file\"\n                                    args = {\"path\": active_staged}\n                                    action = {\n                                        \"tool\": tool,\n                                        \"args\": args,\n                                    }\n                                    break\n",
+          "new": "                        if active_staged:\n                            staged_characters = state.staged_files.get(\n                                active_staged,\n                                0,\n                            )\n\n                            if staged_characters == 0:\n                                print(\n                                    \"[CORE] empty staged recovery -> \"\n                                    f\"append_file_raw {active_staged}\"\n                                )\n\n                                backend = self.router.backend(\"main\")\n\n                                raw_content = (\n                                    self.router._complete_raw_content(\n                                        backend,\n                                        role=\"main\",\n                                        system=self.system_prompt,\n                                        original_user=user_payload,\n                                        path=active_staged,\n                                    )\n                                )\n\n                                tool = \"append_file_raw\"\n                                args = {\n                                    \"path\": active_staged,\n                                    \"_raw_content\": raw_content,\n                                }\n                                action = {\n                                    \"tool\": tool,\n                                    \"args\": args,\n                                }\n\n                                validate_action(action)\n                                used_role = \"main\"\n                                break\n\n                            validation_failure = (\n                                isinstance(\n                                    state.last_tool_failure,\n                                    dict,\n                                )\n                                and state.last_tool_failure.get(\"tool\")\n                                == \"finish_file\"\n                                and state.last_tool_failure.get(\"path\")\n                                == active_staged\n                                and state.last_tool_failure.get(\"stage\")\n                                == \"staged_validation\"\n                            )\n\n                            if not validation_failure:\n                                print(\n                                    f\"[CORE] staged recovery -> finish_file \"\n                                    f\"{active_staged}\"\n                                )\n                                tool = \"finish_file\"\n                                args = {\"path\": active_staged}\n                                action = {\n                                    \"tool\": tool,\n                                    \"args\": args,\n                                }\n                                break\n",
+          "expected_matches": 1
+        }
+      ]
+    },
+    {
+      "path": "tests/test_helix.py",
+      "sha256": "b1b861dd3212c6c885979953ba9ddcb233ac822709901703fbfcc7677504d61d",
+      "edits": [
+        {
+          "op": "insert_before",
+          "anchor": "    def test_staged_action_lock_rejects_unrelated_tool(self):\n",
+          "content": "    def test_raw_prompt_marks_test_file_as_pytest_target(self):\n        payload = json.dumps(\n            {\n                \"task\": \"Build app and add pytest tests.\",\n                \"active_staged_file\": \"test_todo.py\",\n                \"staged_files\": [\n                    {\n                        \"path\": \"test_todo.py\",\n                        \"characters\": 0,\n                    }\n                ],\n                \"last_completed_file\": \"todo.py\",\n                \"changed_files\": [\"todo.py\"],\n                \"remaining_requirements_instruction\": (\n                    \"Automated tests are still required.\"\n                ),\n            }\n        )\n\n        prompt = helix.build_raw_content_prompt(\n            original_user=payload,\n            path=\"test_todo.py\",\n        )\n\n        self.assertIn(\n            \"pytest-discoverable test_* functions\",\n            prompt,\n        )\n        self.assertIn(\n            \"The implementation to test is todo.py\",\n            prompt,\n        )\n\n    def test_empty_staged_recovery_uses_raw_generation(self):\n        source = Path(helix.__file__).read_text(\n            encoding=\"utf-8\"\n        )\n\n        self.assertIn(\n            \"[CORE] empty staged recovery ->\",\n            source,\n        )\n        self.assertIn(\n            'tool = \"append_file_raw\"',\n            source,\n        )\n        self.assertIn(\n            \"_complete_raw_content(\",\n            source,\n        )\n\n",
+          "expected_matches": 1
+        }
+      ]
+    },
+    {
+      "path": "pyproject.toml",
+      "sha256": "08c259f52aa58bd571271cb043d07509f6665f0fd59d60ee79a1d3d3bfe70be6",
+      "edits": [
+        {
+          "op": "replace",
+          "old": "version = \"0.4.9\"\n",
+          "new": "version = \"0.4.10\"\n",
+          "expected_matches": 1
+        }
+      ]
+    },
+    {
+      "path": "README.md",
+      "sha256": "4ae72eb12328c81b4aeabe1ca1919118296a9333938973916ab9889a614324b4",
+      "edits": [
+        {
+          "op": "replace",
+          "old": "Current version: **v0.4.9**",
+          "new": "Current version: **v0.4.10**",
+          "expected_matches": 1
+        }
+      ]
+    }
+  ],
+  "build": [
+    {
+      "type": "command",
+      "name": "Compile Helix",
+      "command": "python -m py_compile helix.py",
+      "expect_exit": 0,
+      "timeout_seconds": 60
+    },
+    {
+      "type": "command",
+      "name": "Compile tests",
+      "command": "python -m py_compile tests/test_helix.py",
+      "expect_exit": 0,
+      "timeout_seconds": 60
+    }
+  ],
+  "tests": [
+    {
+      "type": "command",
+      "name": "Run Helix tests",
+      "command": "python -m unittest discover -s tests -v",
+      "expect_exit": 0,
+      "timeout_seconds": 120,
+      "output_contains": "OK"
+    }
+  ],
+  "options": {
+    "rollback_on_verify_failure": true
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "version": 2,
+  "checkpoint_id": "20260830T183101Z-170f4f4e",
+  "created_utc": "2026-08-30T18:31:01.025494+00:00",
+  "label": "Patch Forge v0.3 - Proposed Diff and Build Test Pipeline",
+  "repo": "C:\\Users\\joshh\\Documents\\Projects\\PatchForge",
+  "files": [
+    {
+      "path": "patchforge.py",
+      "sha256": "4b95a29b02e8900798c124c8bb902c16160600e993223866be74487a6b6a8eb4",
+      "patched_sha256": "ad0636a4902cf6a53f8907457ba91aba99c9c44b517bebb52b4787fe65d5f9d1"
+    },
+    {
+      "path": "patchforge_gui.py",
+      "sha256": "f823e5679dc56a648b6c66d07ed16231321a86e42072a51c117cd90c30476ed9",
+      "patched_sha256": "14524791dfe261031faca23ddb2f2eca8a7fd573b4a4b803c7722a8355d6c8cf"
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "version": 2,
+  "checkpoint_id": "20260903T011155Z-c5687cd0",
+  "created_utc": "2026-09-03T01:11:55.232214+00:00",
+  "label": "Patch Forge - Add New File Creation",
+  "repo": "C:\\Users\\joshh\\Documents\\Projects\\PatchForge",
+  "files": [
+    {
+      "path": "patchforge.py",
+      "sha256": "ad0636a4902cf6a53f8907457ba91aba99c9c44b517bebb52b4787fe65d5f9d1",
+      "patched_sha256": "036c9551d5f1713ea4273a6315abb4d787e9c7ff4bb438ed85a52e510b1e4d76"
+    }
+  ]
+}

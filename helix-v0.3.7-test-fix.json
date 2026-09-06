@@ -1,0 +1,63 @@
+{
+  "version": 2,
+  "name": "Helix v0.3.7 post-finish test expectation fix",
+  "preflight": [
+    {
+      "type": "sha256",
+      "name": "Check current tests baseline",
+      "path": "tests/test_helix.py",
+      "equals": "0775e113d1540f579cf5bf31aeaf8283e9f82718832324caf7fe7d89aac7d0de"
+    }
+  ],
+  "files": [
+    {
+      "path": "tests/test_helix.py",
+      "sha256": "0775e113d1540f579cf5bf31aeaf8283e9f82718832324caf7fe7d89aac7d0de",
+      "edits": [
+        {
+          "op": "replace",
+          "old": "        self.assertIn(\"Do not immediately reread\", guidance)\n",
+          "new": "        self.assertIn(\"Treat it as completed work\", guidance)\n        self.assertIn(\"Do not call list_files\", guidance)\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "        self.assertIn(\"Avoid repeating completed work\", guidance)\n",
+          "new": "        self.assertIn(\"next concrete implementation\", guidance)\n",
+          "expected_matches": 1
+        }
+      ]
+    }
+  ],
+  "build": [
+    {
+      "type": "command",
+      "name": "Compile Helix",
+      "command": "python -m py_compile helix.py",
+      "expect_exit": 0,
+      "timeout_seconds": 60
+    }
+  ],
+  "verify": [
+    {
+      "type": "command",
+      "name": "Check diff",
+      "command": "git diff --check",
+      "expect_exit": 0,
+      "timeout_seconds": 60
+    }
+  ],
+  "tests": [
+    {
+      "type": "command",
+      "name": "Run Helix tests",
+      "command": "python -m unittest discover -s tests -v",
+      "expect_exit": 0,
+      "timeout_seconds": 120,
+      "output_contains": "OK"
+    }
+  ],
+  "options": {
+    "rollback_on_verify_failure": true
+  }
+}

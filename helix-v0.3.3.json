@@ -1,0 +1,201 @@
+{
+  "version": 2,
+  "name": "Helix v0.3.3 failure-guided patch recovery",
+  "preflight": [
+    {
+      "type": "sha256",
+      "name": "Check helix.py baseline",
+      "path": "helix.py",
+      "equals": "3e12e77bef13833d8a33125c13510931b3194d2e5818dd9e44e1e20fc11b9b10"
+    },
+    {
+      "type": "sha256",
+      "name": "Check helix.toml baseline",
+      "path": "helix.toml",
+      "equals": "fe970d79d7b5a2ef7c15c0cebdc843f68287f5c171eaafe80cff929ded39df5f"
+    },
+    {
+      "type": "sha256",
+      "name": "Check coder prompt baseline",
+      "path": "prompts/coder.txt",
+      "equals": "f95c580f21492d18174e947a51f2a0f6b7fa0b8025e69533111d2954d8a7dc3c"
+    },
+    {
+      "type": "sha256",
+      "name": "Check tests baseline",
+      "path": "tests/test_helix.py",
+      "equals": "f3c8ca2221ae28397e3630055cb6bedae7badd9cc31a81a04e299642b33d9d77"
+    },
+    {
+      "type": "sha256",
+      "name": "Check pyproject baseline",
+      "path": "pyproject.toml",
+      "equals": "2a872e41fa7853327ec1a7b5e9a14b73521a01f24b874077506d0a2ac540c6e1"
+    },
+    {
+      "type": "sha256",
+      "name": "Check README baseline",
+      "path": "README.md",
+      "equals": "ebbd5feb465c689c4341ecce29301c7db866d6be60d5bf2c11bef18eef6b925a"
+    }
+  ],
+  "files": [
+    {
+      "path": "helix.py",
+      "sha256": "3e12e77bef13833d8a33125c13510931b3194d2e5818dd9e44e1e20fc11b9b10",
+      "edits": [
+        {
+          "op": "replace",
+          "old": "VERSION = \"0.3.2\"\n",
+          "new": "VERSION = \"0.3.3\"\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "insert_after",
+          "anchor": "    staged_files: dict[str, int] = field(default_factory=dict)\n",
+          "content": "    last_tool_failure: dict[str, Any] | None = None\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "insert_before",
+          "anchor": "    def apply_edit(\n",
+          "content": "    @staticmethod\n    def _adjacent_insert_overlap(\n        source_text: str,\n        anchor: str,\n        content: str,\n        op: str,\n        min_overlap: int = 20,\n    ) -> str:\n        if not anchor or not content:\n            return \"\"\n\n        if source_text.count(anchor) != 1:\n            return \"\"\n\n        anchor_pos = source_text.find(anchor)\n\n        if op == \"insert_after\":\n            adjacent = source_text[anchor_pos + len(anchor):]\n            largest = min(len(adjacent), len(content))\n            for size in range(largest, min_overlap - 1, -1):\n                if content[:size] == adjacent[:size]:\n                    return content[:size]\n\n        if op == \"insert_before\":\n            adjacent = source_text[:anchor_pos]\n            largest = min(len(adjacent), len(content))\n            for size in range(largest, min_overlap - 1, -1):\n                if content[-size:] == adjacent[-size:]:\n                    return content[-size:]\n\n        return \"\"\n\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "insert_after",
+          "anchor": "        digest = hashlib.sha256(source.read_bytes()).hexdigest()\n",
+          "content": "        source_text = source.read_text(encoding=\"utf-8\")\n\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "        elif op in {\"insert_before\", \"insert_after\"}:\n            if not isinstance(anchor, str) or not isinstance(content, str):\n                raise HelixError(f\"{op} requires string anchor and content arguments.\")\n            edit = {\n                \"op\": op,\n                \"anchor\": anchor,\n                \"content\": content,\n                \"expected_matches\": expected_matches,\n            }\n",
+          "new": "        elif op in {\"insert_before\", \"insert_after\"}:\n            if not isinstance(anchor, str) or not isinstance(content, str):\n                raise HelixError(f\"{op} requires string anchor and content arguments.\")\n\n            overlap = self._adjacent_insert_overlap(\n                source_text,\n                anchor,\n                content,\n                op,\n            )\n            if overlap:\n                return {\n                    \"ok\": False,\n                    \"stage\": \"precheck\",\n                    \"path\": relative_path,\n                    \"error\": (\n                        \"Patch content duplicates source text immediately \"\n                        f\"adjacent to the {op} anchor. Remove the duplicated \"\n                        \"existing text and retry.\"\n                    ),\n                    \"duplicate_text\": overlap[:2000],\n                }\n\n            edit = {\n                \"op\": op,\n                \"anchor\": anchor,\n                \"content\": content,\n                \"expected_matches\": expected_matches,\n            }\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "        patch = {\n            \"version\": 2,\n            \"name\": f\"Helix attempt {attempt:03d} - {relative_path}\",\n            \"preflight\": [\n",
+          "new": "        verify_commands = [\n            {\n                \"type\": \"command\",\n                \"name\": \"Check resulting diff\",\n                \"command\": \"git diff --check\",\n                \"expect_exit\": 0,\n            }\n        ]\n\n        if source.suffix.lower() == \".py\":\n            verify_commands.append(\n                {\n                    \"type\": \"command\",\n                    \"name\": f\"Compile {relative_path}\",\n                    \"command\": (\n                        \"python -m py_compile \"\n                        + json.dumps(relative_path)\n                    ),\n                    \"expect_exit\": 0,\n                }\n            )\n\n        patch = {\n            \"version\": 2,\n            \"name\": f\"Helix attempt {attempt:03d} - {relative_path}\",\n            \"preflight\": [\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "            \"verify\": [\n                {\n                    \"type\": \"command\",\n                    \"name\": \"Check resulting diff\",\n                    \"command\": \"git diff --check\",\n                    \"expect_exit\": 0,\n                }\n            ],\n",
+          "new": "            \"verify\": verify_commands,\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "insert_before",
+          "anchor": "    def _mark_progress(self, state: AgentState) -> None:\n",
+          "content": "    def _failure_recovery_instruction(self, state: AgentState) -> str:\n        failure = state.last_tool_failure\n        if not failure:\n            return \"\"\n\n        tool = str(failure.get(\"tool\", \"\"))\n        path = str(failure.get(\"path\", \"\"))\n\n        if tool == \"patch_file\":\n            return (\n                \"PATCH RECOVERY REQUIRED. \"\n                f\"The previous patch_file for {path or 'the target file'} failed. \"\n                \"Do not call list_files and do not repeat the same patch unchanged. \"\n                \"Inspect the failed file with read_file and use the exact failure \"\n                \"details to construct a corrected patch_file action. \"\n                \"Resolve this patch failure before unrelated repository scanning.\"\n            )\n\n        return (\n            \"TOOL RECOVERY REQUIRED. Inspect the previous failed action and \"\n            \"correct it before unrelated repository scanning.\"\n        )\n\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "insert_after",
+          "anchor": "                    \"staged_work_instruction\": self._staged_work_instruction(state),\n",
+          "content": "                    \"last_tool_failure\": state.last_tool_failure,\n                    \"failure_recovery_instruction\": self._failure_recovery_instruction(state),\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "        if tool == \"list_files\":\n            return True, json.dumps(self.workspace.list_files(), indent=2)\n",
+          "new": "        if tool == \"list_files\":\n            if (\n                state.last_tool_failure\n                and state.last_tool_failure.get(\"tool\") == \"patch_file\"\n            ):\n                path = state.last_tool_failure.get(\"path\", \"the failed file\")\n                return (\n                    False,\n                    f\"Patch recovery required for {path}. \"\n                    \"Do not rescan the repository. Read the failed file and \"\n                    \"correct the patch_file action first.\",\n                )\n\n            return True, json.dumps(self.workspace.list_files(), indent=2)\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "            if result[\"ok\"]:\n                state.changed_files.add(relative)\n                state.workspace_revision += 1\n                state.seen_actions.clear()\n                state.verification_passed = False\n                state.last_verification_command = \"\"\n                return True, f\"Patch applied successfully: {relative}\"\n            state.coding_failures += 1\n            return False, json.dumps(result, indent=2)\n",
+          "new": "            if result[\"ok\"]:\n                state.last_tool_failure = None\n                state.changed_files.add(relative)\n                state.workspace_revision += 1\n                state.seen_actions.clear()\n                state.verification_passed = False\n                state.last_verification_command = \"\"\n                return True, f\"Patch applied successfully: {relative}\"\n\n            state.coding_failures += 1\n            state.last_tool_failure = {\n                \"tool\": \"patch_file\",\n                \"path\": relative,\n                \"stage\": result.get(\"stage\", \"unknown\"),\n                \"error\": result.get(\"error\", \"\"),\n                \"stdout\": str(result.get(\"stdout\", \"\"))[-6000:],\n                \"stderr\": str(result.get(\"stderr\", \"\"))[-6000:],\n                \"check_output\": str(result.get(\"check_output\", \"\"))[-6000:],\n                \"duplicate_text\": str(result.get(\"duplicate_text\", \"\"))[:2000],\n            }\n            return False, json.dumps(result, indent=2)\n",
+          "expected_matches": 1
+        }
+      ]
+    },
+    {
+      "path": "prompts/coder.txt",
+      "sha256": "f95c580f21492d18174e947a51f2a0f6b7fa0b8025e69533111d2954d8a7dc3c",
+      "edits": [
+        {
+          "op": "insert_before",
+          "anchor": "Useful tools include list_files, read_file, search_text, hash_file, begin_file, append_file, finish_file, patch_file, run_command, git_diff, and finish.\n",
+          "content": "43. If last_tool_failure is present, treat failure_recovery_instruction as the highest-priority next-step guidance.\n\n44. After patch_file fails, do NOT call list_files. The repository structure is already known. Read the failed file, inspect the exact error, and construct a corrected patch_file action.\n\n45. Never repeat a failed patch_file unchanged. Patch Forge failures are diagnostic information that must change your next edit.\n\n46. For insert_before and insert_after, do not include source text that already exists immediately next to the insertion anchor. Helix detects adjacent duplicated source and will reject the edit before Patch Forge.\n\n47. Python patch_file operations are syntax-checked with python -m py_compile by Patch Forge. If syntax verification fails, use the exact Python error to repair the source and retry.\n\n",
+          "expected_matches": 1
+        }
+      ]
+    },
+    {
+      "path": "tests/test_helix.py",
+      "sha256": "f3c8ca2221ae28397e3630055cb6bedae7badd9cc31a81a04e299642b33d9d77",
+      "edits": [
+        {
+          "op": "insert_before",
+          "anchor": "    def test_interruptible_call_returns_value(self):\n",
+          "content": "    def test_insert_after_duplicate_adjacent_source_is_rejected(self):\n        with tempfile.TemporaryDirectory() as tmp:\n            root = Path(tmp)\n            source = root / \"app.py\"\n            source.write_text(\n                \"def add():\\n\"\n                \"    item = {\\n\"\n                \"        'created': True\\n\"\n                \"    }\\n\"\n                \"    save(item)\\n\"\n                \"    return item\\n\",\n                encoding=\"utf-8\",\n            )\n\n            adapter = helix.PatchForgeAdapter(root, \"\")\n\n            result = adapter.apply_edit(\n                \"app.py\",\n                \"insert_after\",\n                1,\n                anchor=\"        'created': True\\n\",\n                content=(\n                    \"    }\\n\"\n                    \"    save(item)\\n\"\n                    \"    return item\\n\\n\"\n                    \"def next_function():\\n\"\n                    \"    pass\\n\"\n                ),\n                expected_matches=1,\n            )\n\n            self.assertFalse(result[\"ok\"])\n            self.assertEqual(result[\"stage\"], \"precheck\")\n            self.assertIn(\"duplicates source text\", result[\"error\"])\n            self.assertIn(\"save(item)\", result[\"duplicate_text\"])\n\n    def test_python_patch_adds_py_compile_verification(self):\n        with tempfile.TemporaryDirectory() as tmp:\n            root = Path(tmp)\n            source = root / \"app.py\"\n            source.write_text(\n                \"def value():\\n    return 1\\n\",\n                encoding=\"utf-8\",\n            )\n\n            adapter = helix.PatchForgeAdapter(root, \"\")\n            captured = {}\n\n            def fake_apply(patch, attempt):\n                captured[\"patch\"] = patch\n                return {\"ok\": True}\n\n            adapter.apply = fake_apply\n\n            result = adapter.apply_edit(\n                \"app.py\",\n                \"replace\",\n                2,\n                old=\"    return 1\\n\",\n                new=\"    return 2\\n\",\n                expected_matches=1,\n            )\n\n            self.assertTrue(result[\"ok\"])\n            commands = [\n                item[\"command\"]\n                for item in captured[\"patch\"][\"verify\"]\n            ]\n            self.assertIn(\"git diff --check\", commands)\n            self.assertTrue(\n                any(\n                    command.startswith(\"python -m py_compile\")\n                    and \"app.py\" in command\n                    for command in commands\n                )\n            )\n\n    def test_patch_failure_recovery_instruction(self):\n        with tempfile.TemporaryDirectory() as tmp:\n            root = Path(tmp)\n            prompt = root / \"prompt.txt\"\n            prompt.write_text(\"prompt\\n\", encoding=\"utf-8\")\n\n            config = helix.HelixConfig(\n                patchforge_cli=\"\",\n                max_steps=0,\n                command_timeout_seconds=10,\n                models={\"main\": helix.ModelSpec(\"ollama\", \"main\")},\n            )\n\n            agent = helix.HelixAgent(root, config, prompt)\n            state = helix.AgentState(task=\"test\", project_root=root)\n            state.last_tool_failure = {\n                \"tool\": \"patch_file\",\n                \"path\": \"todo.py\",\n                \"stage\": \"apply\",\n                \"stderr\": \"SyntaxError\",\n            }\n\n            instruction = agent._failure_recovery_instruction(state)\n\n            self.assertIn(\"PATCH RECOVERY REQUIRED\", instruction)\n            self.assertIn(\"todo.py\", instruction)\n            self.assertIn(\"Do not call list_files\", instruction)\n            self.assertIn(\"read_file\", instruction)\n\n    def test_list_files_blocked_during_patch_recovery(self):\n        with tempfile.TemporaryDirectory() as tmp:\n            root = Path(tmp)\n            prompt = root / \"prompt.txt\"\n            prompt.write_text(\"prompt\\n\", encoding=\"utf-8\")\n            (root / \"app.py\").write_text(\"pass\\n\", encoding=\"utf-8\")\n\n            config = helix.HelixConfig(\n                patchforge_cli=\"\",\n                max_steps=0,\n                command_timeout_seconds=10,\n                models={\"main\": helix.ModelSpec(\"ollama\", \"main\")},\n            )\n\n            agent = helix.HelixAgent(root, config, prompt)\n            state = helix.AgentState(task=\"test\", project_root=root)\n            state.last_tool_failure = {\n                \"tool\": \"patch_file\",\n                \"path\": \"app.py\",\n                \"stage\": \"apply\",\n            }\n\n            ok, summary = agent.execute(\n                \"list_files\",\n                {},\n                state,\n            )\n\n            self.assertFalse(ok)\n            self.assertIn(\"Patch recovery required\", summary)\n            self.assertIn(\"Read the failed file\", summary)\n\n    def test_successful_patch_clears_failure_state(self):\n        with tempfile.TemporaryDirectory() as tmp:\n            root = Path(tmp)\n            prompt = root / \"prompt.txt\"\n            prompt.write_text(\"prompt\\n\", encoding=\"utf-8\")\n            (root / \"app.py\").write_text(\n                \"value = 1\\n\",\n                encoding=\"utf-8\",\n            )\n\n            config = helix.HelixConfig(\n                patchforge_cli=\"\",\n                max_steps=0,\n                command_timeout_seconds=10,\n                models={\"main\": helix.ModelSpec(\"ollama\", \"main\")},\n            )\n\n            agent = helix.HelixAgent(root, config, prompt)\n            state = helix.AgentState(task=\"test\", project_root=root)\n            state.last_tool_failure = {\n                \"tool\": \"patch_file\",\n                \"path\": \"app.py\",\n                \"stage\": \"apply\",\n            }\n\n            agent.forge.apply_edit = lambda *args, **kwargs: {\"ok\": True}\n\n            ok, _ = agent.execute(\n                \"patch_file\",\n                {\n                    \"path\": \"app.py\",\n                    \"op\": \"replace\",\n                    \"old\": \"value = 1\\n\",\n                    \"new\": \"value = 2\\n\",\n                    \"expected_matches\": 1,\n                },\n                state,\n            )\n\n            self.assertTrue(ok)\n            self.assertIsNone(state.last_tool_failure)\n\n",
+          "expected_matches": 1
+        }
+      ]
+    },
+    {
+      "path": "pyproject.toml",
+      "sha256": "2a872e41fa7853327ec1a7b5e9a14b73521a01f24b874077506d0a2ac540c6e1",
+      "edits": [
+        {
+          "op": "replace",
+          "old": "version = \"0.3.2\"\n",
+          "new": "version = \"0.3.3\"\n",
+          "expected_matches": 1
+        }
+      ]
+    },
+    {
+      "path": "README.md",
+      "sha256": "ebbd5feb465c689c4341ecce29301c7db866d6be60d5bf2c11bef18eef6b925a",
+      "edits": [
+        {
+          "op": "replace",
+          "old": "Current version: **v0.3.2**",
+          "new": "Current version: **v0.3.3**",
+          "expected_matches": 1
+        },
+        {
+          "op": "insert_after",
+          "anchor": "Helix also checks `append_file` payloads for substantial overlap with content already staged. Duplicate or overlapping chunks are rejected before they can be appended, reducing accidental duplicated source code before `finish_file` sends the completed file to Patch Forge.\n",
+          "content": "\n\n## Failure-guided patch recovery in v0.3.3\n\nHelix now preserves failed `patch_file` details as first-class task state. The next model request includes the failed path, Patch Forge stage, diagnostic output, and an explicit recovery instruction.\n\nWhile a patch failure remains unresolved, `list_files` is blocked so the agent cannot fall back into repetitive repository scans. The agent is directed to read the failed file, inspect the exact error, and construct a corrected patch.\n\nInsert operations also receive adjacent-source overlap protection. If an `insert_before` or `insert_after` payload repeats text that already exists immediately beside the anchor, Helix rejects the edit before Patch Forge runs and reports the duplicated region.\n\nPython files modified through `patch_file` now receive a `python -m py_compile` verification command inside the Patch Forge workflow in addition to `git diff --check`. With rollback enabled, syntax-invalid Python edits can be restored automatically and the exact verification failure returned to Helix for another debugging iteration.\n",
+          "expected_matches": 1
+        }
+      ]
+    }
+  ],
+  "build": [
+    {
+      "type": "command",
+      "name": "Compile Helix",
+      "command": "python -m py_compile helix.py",
+      "expect_exit": 0,
+      "timeout_seconds": 60
+    }
+  ],
+  "verify": [
+    {
+      "type": "command",
+      "name": "Check resulting diff",
+      "command": "git diff --check",
+      "expect_exit": 0,
+      "timeout_seconds": 60
+    }
+  ],
+  "tests": [
+    {
+      "type": "command",
+      "name": "Run Helix tests",
+      "command": "python -m unittest discover -s tests -v",
+      "expect_exit": 0,
+      "timeout_seconds": 120,
+      "output_contains": "OK"
+    }
+  ],
+  "options": {
+    "rollback_on_verify_failure": true
+  }
+}

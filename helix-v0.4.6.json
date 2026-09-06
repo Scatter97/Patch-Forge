@@ -1,0 +1,121 @@
+{
+  "version": 2,
+  "name": "Helix v0.4.6 state-constrained tool exposure",
+  "preflight": [
+    {
+      "type": "sha256",
+      "name": "Check helix.py",
+      "path": "helix.py",
+      "equals": "91b0284c94f2f90d465ac5979338d6217a92a52a7ec83eb31a0ece2c8e207f22"
+    },
+    {
+      "type": "sha256",
+      "name": "Check tests/test_helix.py",
+      "path": "tests/test_helix.py",
+      "equals": "52377599bc7556adba533ebc141d9b59f495a29bbb29978fa9f528b78594631a"
+    },
+    {
+      "type": "sha256",
+      "name": "Check pyproject.toml",
+      "path": "pyproject.toml",
+      "equals": "c667dbda6dedb14dd3a535b7903e39eb1227e03f0fd401e501189f69ef0f7399"
+    },
+    {
+      "type": "sha256",
+      "name": "Check README.md",
+      "path": "README.md",
+      "equals": "e5b52bee06bf45b7fe4adc132ca4619d37e107491dc61f5a305427675a784a63"
+    }
+  ],
+  "files": [
+    {
+      "path": "helix.py",
+      "sha256": "91b0284c94f2f90d465ac5979338d6217a92a52a7ec83eb31a0ece2c8e207f22",
+      "edits": [
+        {
+          "op": "replace",
+          "old": "VERSION = \"0.4.5\"\n",
+          "new": "VERSION = \"0.4.6\"\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "insert_before",
+          "anchor": "    def _post_finish_guard(\n",
+          "content": "    @staticmethod\n    def _tool_entry_name(entry: Any) -> str:\n        \"\"\"Return the tool name from Helix's prompt/tool schema entry.\"\"\"\n        if isinstance(entry, str):\n            return entry\n\n        if not isinstance(entry, dict):\n            return \"\"\n\n        for key in (\"name\", \"tool\"):\n            value = entry.get(key)\n            if isinstance(value, str):\n                return value\n\n        function = entry.get(\"function\")\n        if isinstance(function, dict):\n            value = function.get(\"name\")\n            if isinstance(value, str):\n                return value\n\n        return \"\"\n\n    def _available_tools_for_state(\n        self,\n        state: AgentState,\n    ) -> list[Any]:\n        \"\"\"Expose only tools that are legal/useful in the current state.\"\"\"\n        active = self._active_staged_file(state)\n\n        if active:\n            characters = state.staged_files.get(active, 0)\n\n            if characters == 0:\n                allowed = {\n                    \"append_file\",\n                    \"append_file_raw\",\n                }\n            else:\n                allowed = {\n                    \"append_file\",\n                    \"append_file_raw\",\n                    \"read_file\",\n                    \"finish_file\",\n                }\n\n            return [\n                entry\n                for entry in TOOLS\n                if self._tool_entry_name(entry) in allowed\n            ]\n\n        if state.post_finish_pending:\n            # A file was just completed. Do not let the model waste the\n            # continuation step rediscovering the repository or invoking\n            # staged-file operations when no staged file exists.\n            blocked = {\n                \"list_files\",\n                \"read_file\",\n                \"append_file\",\n                \"append_file_raw\",\n                \"finish_file\",\n            }\n\n            filtered = [\n                entry\n                for entry in TOOLS\n                if self._tool_entry_name(entry) not in blocked\n            ]\n\n            # Defensive fallback: never accidentally send an empty tool list\n            # if a future tool-schema format changes.\n            return filtered or TOOLS\n\n        return TOOLS\n\n",
+          "expected_matches": 1
+        },
+        {
+          "op": "replace",
+          "old": "\"available_tools\": TOOLS,",
+          "new": "\"available_tools\": self._available_tools_for_state(state),",
+          "expected_matches": 1
+        }
+      ]
+    },
+    {
+      "path": "tests/test_helix.py",
+      "sha256": "52377599bc7556adba533ebc141d9b59f495a29bbb29978fa9f528b78594631a",
+      "edits": [
+        {
+          "op": "insert_before",
+          "anchor": "    def test_staged_action_lock_rejects_unrelated_tool(self):\n",
+          "content": "    def test_available_tools_are_state_filtered_in_prompt(self):\n        source = Path(helix.__file__).read_text(encoding=\"utf-8\")\n\n        self.assertIn(\n            '\"available_tools\": self._available_tools_for_state(state)',\n            source,\n        )\n        self.assertIn(\n            '\"append_file_raw\",',\n            source,\n        )\n        self.assertIn(\n            '\"finish_file\",',\n            source,\n        )\n        self.assertIn(\n            '\"list_files\",',\n            source,\n        )\n\n    def test_tool_entry_name_supports_common_schema_shapes(self):\n        self.assertEqual(\n            helix.HelixAgent._tool_entry_name(\"read_file\"),\n            \"read_file\",\n        )\n        self.assertEqual(\n            helix.HelixAgent._tool_entry_name(\n                {\"name\": \"begin_file\"}\n            ),\n            \"begin_file\",\n        )\n        self.assertEqual(\n            helix.HelixAgent._tool_entry_name(\n                {\"function\": {\"name\": \"run_command\"}}\n            ),\n            \"run_command\",\n        )\n\n",
+          "expected_matches": 1
+        }
+      ]
+    },
+    {
+      "path": "pyproject.toml",
+      "sha256": "c667dbda6dedb14dd3a535b7903e39eb1227e03f0fd401e501189f69ef0f7399",
+      "edits": [
+        {
+          "op": "replace",
+          "old": "version = \"0.4.5\"\n",
+          "new": "version = \"0.4.6\"\n",
+          "expected_matches": 1
+        }
+      ]
+    },
+    {
+      "path": "README.md",
+      "sha256": "e5b52bee06bf45b7fe4adc132ca4619d37e107491dc61f5a305427675a784a63",
+      "edits": [
+        {
+          "op": "replace",
+          "old": "Current version: **v0.4.5**",
+          "new": "Current version: **v0.4.6**",
+          "expected_matches": 1
+        }
+      ]
+    }
+  ],
+  "build": [
+    {
+      "type": "command",
+      "name": "Compile Helix",
+      "command": "python -m py_compile helix.py",
+      "expect_exit": 0,
+      "timeout_seconds": 60
+    },
+    {
+      "type": "command",
+      "name": "Compile tests",
+      "command": "python -m py_compile tests/test_helix.py",
+      "expect_exit": 0,
+      "timeout_seconds": 60
+    }
+  ],
+  "tests": [
+    {
+      "type": "command",
+      "name": "Run Helix tests",
+      "command": "python -m unittest discover -s tests -v",
+      "expect_exit": 0,
+      "timeout_seconds": 120,
+      "output_contains": "OK"
+    }
+  ],
+  "options": {
+    "rollback_on_verify_failure": true
+  }
+}

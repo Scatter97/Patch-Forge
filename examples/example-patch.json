@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "name": "Example safe edit",
+  "files": [
+    {
+      "path": "src/example.cpp",
+      "sha256": "PUT_ORIGINAL_SHA256_HERE",
+      "edits": [
+        {
+          "op": "replace",
+          "old": "int value = 1;",
+          "new": "int value = 2;",
+          "expected_matches": 1
+        }
+      ]
+    }
+  ],
+  "verify": [
+    "git diff --check"
+  ]
+}

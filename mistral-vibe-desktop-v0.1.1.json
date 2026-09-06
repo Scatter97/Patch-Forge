@@ -1,0 +1,34 @@
+{
+    "files":  [
+                  {
+                      "path":  "package.json",
+                      "sha256":  "4d9a5a3561df5a9c0571444a444df76a729fae3fbb5980804fec75169aed2ee2",
+                      "edits":  [
+                                    {
+                                        "expected_matches":  1,
+                                        "new":  "\"version\": \"0.1.1\"",
+                                        "op":  "replace",
+                                        "old":  "\"version\": \"0.1.0\""
+                                    },
+                                    {
+                                        "expected_matches":  1,
+                                        "new":  "\"icon\": \"build/icon.png\"",
+                                        "op":  "replace",
+                                        "old":  "\"icon\": \"build/icon.svg\""
+                                    },
+                                    {
+                                        "expected_matches":  1,
+                                        "new":  "\"build/icon.png\"",
+                                        "op":  "replace",
+                                        "old":  "\"build/icon.svg\""
+                                    }
+                                ]
+                  }
+              ],
+    "name":  "mistral-vibe-desktop-v0.1.1",
+    "version":  2,
+    "verify":  [
+                   "node -e \"const p=require(\u0027./package.json\u0027);if(p.version!==\u00270.1.1\u0027)process.exit(1);if(p.build.win.icon!==\u0027build/icon.png\u0027)process.exit(1);console.log(\u0027Package configuration OK\u0027);\"",
+                   "powershell -NoProfile -Command \"if (!(Test-Path \u0027build/icon.png\u0027)) { exit 1 }; Write-Host \u0027Official Mistral icon OK\u0027\""
+               ]
+}

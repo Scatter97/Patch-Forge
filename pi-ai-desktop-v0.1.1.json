@@ -1,0 +1,36 @@
+{
+    "files":  [
+                  {
+                      "path":  "main.js",
+                      "sha256":  "81ee35f21166e4e13f250fd34ab0b592ab25fd281e66400f7825c41f4ec92995",
+                      "edits":  [
+                                    {
+                                        "expected_matches":  1,
+                                        "new":  "  mainWindow.webContents.setWindowOpenHandler(({ url }) =\u003e {\n    try {\n      const parsed = new URL(url);\n\n      if (\n        parsed.hostname === \"pi.ai\" ||\n        parsed.hostname.endsWith(\".pi.ai\")\n      ) {\n        mainWindow.loadURL(url);\n        return { action: \"deny\" };\n      }\n\n      shell.openExternal(url);\n      return { action: \"deny\" };\n    } catch {\n      return { action: \"deny\" };\n    }\n  });\n\n  mainWindow.loadURL(\"https://pi.ai/\");",
+                                        "op":  "replace",
+                                        "old":  "  mainWindow.webContents.setWindowOpenHandler(({ url }) =\u003e {\n    try {\n      const parsed = new URL(url);\n\n      if (\n        parsed.hostname === \"hey.pi.ai\" ||\n        parsed.hostname === \"pi.ai\" ||\n        parsed.hostname.endsWith(\".pi.ai\")\n      ) {\n        return {\n          action: \"allow\",\n          overrideBrowserWindowOptions: {\n            width: 520,\n            height: 720,\n            autoHideMenuBar: true,\n            webPreferences: {\n              nodeIntegration: false,\n              contextIsolation: true,\n              sandbox: true\n            }\n          }\n        };\n      }\n\n      shell.openExternal(url);\n      return { action: \"deny\" };\n    } catch {\n      return { action: \"deny\" };\n    }\n  });\n\n  mainWindow.loadURL(\"https://hey.pi.ai/\");"
+                                    }
+                                ]
+                  },
+                  {
+                      "path":  "package.json",
+                      "sha256":  "6a73e9f9d7e79bc195c3acc4caf5c141ee8021e076ab9a92e3c4cb1282fe3b49",
+                      "edits":  [
+                                    {
+                                        "expected_matches":  1,
+                                        "new":  "\"version\": \"0.1.1\"",
+                                        "op":  "replace",
+                                        "old":  "\"version\": \"0.1.0\""
+                                    }
+                                ]
+                  }
+              ],
+    "name":  "pi-ai-desktop-v0.1.1",
+    "version":  2,
+    "verify":  [
+                   "node --check main.js",
+                   "node -e \"const fs=require(\u0027fs\u0027);const s=fs.readFileSync(\u0027main.js\u0027,\u0027utf8\u0027);if(!s.includes(\u0027https://pi.ai/\u0027))process.exit(1);if(s.includes(\u0027https://hey.pi.ai/\u0027))process.exit(1);console.log(\u0027Direct Pi app URL OK\u0027);\"",
+                   "node -e \"const fs=require(\u0027fs\u0027);const s=fs.readFileSync(\u0027main.js\u0027,\u0027utf8\u0027);if(!s.includes(\u0027mainWindow.loadURL(url)\u0027) )process.exit(1);console.log(\u0027Same-window Pi navigation OK\u0027);\"",
+                   "node -e \"const p=require(\u0027./package.json\u0027);if(p.version!==\u00270.1.1\u0027)process.exit(1);console.log(\u0027Version OK\u0027);\""
+               ]
+}

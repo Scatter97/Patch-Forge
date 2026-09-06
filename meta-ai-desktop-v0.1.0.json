@@ -1,0 +1,21 @@
+{
+    "files":  [
+                  {
+                      "path":  "package.json",
+                      "content":  "{\n  \"name\": \"meta-ai-desktop\",\n  \"version\": \"0.1.0\",\n  \"description\": \"Minimal Windows desktop wrapper for Meta AI\",\n  \"main\": \"main.js\",\n  \"author\": \"Josh\",\n  \"license\": \"MIT\",\n  \"scripts\": {\n    \"start\": \"electron .\",\n    \"dist\": \"electron-builder --win\"\n  },\n  \"devDependencies\": {\n    \"electron\": \"latest\",\n    \"electron-builder\": \"latest\"\n  },\n  \"build\": {\n    \"appId\": \"com.josh.metaaidesktop\",\n    \"productName\": \"Meta AI Desktop\",\n    \"directories\": {\n      \"output\": \"dist\"\n    },\n    \"files\": [\n      \"main.js\",\n      \"package.json\"\n    ],\n    \"win\": {\n      \"target\": \"nsis\"\n    },\n    \"nsis\": {\n      \"oneClick\": false,\n      \"allowToChangeInstallationDirectory\": true,\n      \"createDesktopShortcut\": true,\n      \"createStartMenuShortcut\": true\n    }\n  }\n}",
+                      "action":  "create"
+                  },
+                  {
+                      "path":  "main.js",
+                      "content":  "const { app, BrowserWindow } = require(\"electron\");\n\nlet mainWindow = null;\n\nfunction createWindow() {\n  mainWindow = new BrowserWindow({\n    width: 1280,\n    height: 850,\n    minWidth: 800,\n    minHeight: 600,\n    title: \"Meta AI\",\n    autoHideMenuBar: true,\n    webPreferences: {\n      nodeIntegration: false,\n      contextIsolation: true,\n      sandbox: true\n    }\n  });\n\n  mainWindow.loadURL(\"https://www.meta.ai/\");\n\n  mainWindow.on(\"closed\", () =\u003e {\n    mainWindow = null;\n  });\n}\n\napp.whenReady().then(() =\u003e {\n  createWindow();\n\n  app.on(\"activate\", () =\u003e {\n    if (BrowserWindow.getAllWindows().length === 0) {\n      createWindow();\n    }\n  });\n});\n\napp.on(\"window-all-closed\", () =\u003e {\n  if (process.platform !== \"darwin\") {\n    app.quit();\n  }\n});",
+                      "action":  "create"
+                  },
+                  {
+                      "path":  ".gitignore",
+                      "content":  "node_modules/\ndist/\n*.log",
+                      "action":  "create"
+                  }
+              ],
+    "name":  "meta-ai-desktop-v0.1.0",
+    "version":  2
+}

@@ -1,0 +1,57 @@
+{
+  "version": 2,
+  "name": "Helix v0.3.2 append-file indentation fix",
+  "preflight": [
+    {
+      "type": "sha256",
+      "name": "Check broken v0.3.2 helix.py baseline",
+      "path": "helix.py",
+      "equals": "b6ebb18d7d1e611c30276732d035cb6086dc95b480fe9f2fedd2015d12452797"
+    }
+  ],
+  "files": [
+    {
+      "path": "helix.py",
+      "sha256": "b6ebb18d7d1e611c30276732d035cb6086dc95b480fe9f2fedd2015d12452797",
+      "edits": [
+        {
+          "op": "replace",
+          "old": "            if len(content) > self.config.max_create_chunk_chars:\n            overlap = self.workspace.staged_append_overlap(\n                relative,\n                content,\n            )\n            if overlap > 0:\n                return (\n                    False,\n                    f\"Duplicate staged content detected for {relative}: \"\n                    f\"the proposed append overlaps {overlap} character(s) \"\n                    \"already present in the staged file. \"\n                    \"Do not append the repeated content again. \"\n                    \"Continue from the first genuinely new content; \"\n                    \"use read_file if you need to inspect the staged file.\",\n                )\n\n                return (\n                    False,\n                    f\"Append payload too large: {len(content)} characters. \"\n                    f\"Hard maximum is {self.config.max_create_chunk_chars}. \"\n                    \"Retry the same append_file action with at most 2500 characters.\",\n                )\n",
+          "new": "            if len(content) > self.config.max_create_chunk_chars:\n                return (\n                    False,\n                    f\"Append payload too large: {len(content)} characters. \"\n                    f\"Hard maximum is {self.config.max_create_chunk_chars}. \"\n                    \"Retry the same append_file action with at most 2500 characters.\",\n                )\n\n            overlap = self.workspace.staged_append_overlap(\n                relative,\n                content,\n            )\n            if overlap > 0:\n                return (\n                    False,\n                    f\"Duplicate staged content detected for {relative}: \"\n                    f\"the proposed append overlaps {overlap} character(s) \"\n                    \"already present in the staged file. \"\n                    \"Do not append the repeated content again. \"\n                    \"Continue from the first genuinely new content; \"\n                    \"use read_file if you need to inspect the staged file.\",\n                )\n",
+          "expected_matches": 1
+        }
+      ]
+    }
+  ],
+  "build": [
+    {
+      "type": "command",
+      "name": "Compile Helix",
+      "command": "python -m py_compile helix.py",
+      "expect_exit": 0,
+      "timeout_seconds": 60
+    }
+  ],
+  "verify": [
+    {
+      "type": "command",
+      "name": "Check diff",
+      "command": "git diff --check",
+      "expect_exit": 0,
+      "timeout_seconds": 60
+    }
+  ],
+  "tests": [
+    {
+      "type": "command",
+      "name": "Run Helix tests",
+      "command": "python -m unittest discover -s tests -v",
+      "expect_exit": 0,
+      "timeout_seconds": 120,
+      "output_contains": "OK"
+    }
+  ],
+  "options": {
+    "rollback_on_verify_failure": true
+  }
+}

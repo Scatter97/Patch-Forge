@@ -1,0 +1,11 @@
+{
+  "version": 2,
+  "name": "Test New File Creation",
+  "files": [
+    {
+      "path": "src/hello.py",
+      "action": "create",
+      "content": "print(\"Hello from Patch Forge\")\n"
+    }
+  ]
+}
