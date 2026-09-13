@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import difflib
 import hashlib
 import json
@@ -357,6 +358,379 @@ def validate_spec_version(spec: dict[str, Any]) -> int:
     return version
 
 
+
+def mission_control_path_parts(
+    value: str,
+    context: str,
+) -> list[str]:
+    if not isinstance(value, str) or not value:
+        raise PatchForgeError(
+            f"{context}: JSON path must be a non-empty string."
+        )
+
+    parts = value.split(".")
+
+    if any(not part for part in parts):
+        raise PatchForgeError(
+            f"{context}: invalid JSON path '{value}'."
+        )
+
+    return parts
+
+
+def mission_control_parent(
+    root: dict[str, Any],
+    path: str,
+    context: str,
+    create: bool,
+) -> tuple[dict[str, Any], str]:
+    parts = mission_control_path_parts(
+        path,
+        context,
+    )
+
+    current = root
+
+    for part in parts[:-1]:
+        if part not in current:
+            if not create:
+                raise PatchForgeError(
+                    f"{context}: JSON path does not exist: {path}"
+                )
+
+            current[part] = {}
+
+        child = current[part]
+
+        if not isinstance(child, dict):
+            raise PatchForgeError(
+                f"{context}: '{part}' in '{path}' is not an object."
+            )
+
+        current = child
+
+    return current, parts[-1]
+
+
+def mission_control_get(
+    root: dict[str, Any],
+    path: str,
+    context: str,
+) -> Any:
+    parent, key = mission_control_parent(
+        root,
+        path,
+        context,
+        create=False,
+    )
+
+    if key not in parent:
+        raise PatchForgeError(
+            f"{context}: JSON path does not exist: {path}"
+        )
+
+    return parent[key]
+
+
+def mission_control_mapping(
+    root: dict[str, Any],
+    mapping: Any,
+    context: str,
+    require_existing: bool,
+) -> int:
+    if mapping is None:
+        return 0
+
+    if not isinstance(mapping, dict):
+        raise PatchForgeError(
+            f"{context} must be an object."
+        )
+
+    changed = 0
+
+    for path, value in mapping.items():
+        if not isinstance(path, str):
+            raise PatchForgeError(
+                f"{context}: keys must be strings."
+            )
+
+        parent, key = mission_control_parent(
+            root,
+            path,
+            context,
+            create=not require_existing,
+        )
+
+        if require_existing and key not in parent:
+            raise PatchForgeError(
+                f"{context}: JSON path does not exist: {path}"
+            )
+
+        parent[key] = copy.deepcopy(value)
+        changed += 1
+
+    return changed
+
+
+def prepare_mission_control_patch(
+    repo: Path,
+    spec: dict[str, Any],
+    seen_paths: set[str],
+) -> PreparedFile | None:
+    section = spec.get("missionControl")
+
+    if section is None:
+        return None
+
+    if not isinstance(section, dict):
+        raise PatchForgeError(
+            "'missionControl' must be an object."
+        )
+
+    allowed = {
+        "configPath",
+        "createIfMissing",
+        "set",
+        "replace",
+        "append",
+        "remove",
+        "unset",
+    }
+
+    unknown = set(section) - allowed
+
+    if unknown:
+        raise PatchForgeError(
+            "missionControl contains unsupported field(s): "
+            + ", ".join(sorted(unknown))
+        )
+
+    context = "missionControl"
+
+    relative_path = require_string(
+        section,
+        "configPath",
+        context,
+    )
+
+    if not relative_path.strip():
+        raise PatchForgeError(
+            "missionControl.configPath must not be empty."
+        )
+
+    if relative_path in seen_paths:
+        raise PatchForgeError(
+            "missionControl.configPath duplicates files entry: "
+            f"{relative_path}"
+        )
+
+    absolute_path = resolve_repo_path(
+        repo,
+        relative_path,
+    )
+
+    create_if_missing = section.get(
+        "createIfMissing",
+        False,
+    )
+
+    if not isinstance(create_if_missing, bool):
+        raise PatchForgeError(
+            "missionControl.createIfMissing must be true or false."
+        )
+
+    original_exists = absolute_path.exists()
+
+    if original_exists:
+        if not absolute_path.is_file():
+            raise PatchForgeError(
+                "missionControl config is not a regular file: "
+                f"{relative_path}"
+            )
+
+        original_bytes = absolute_path.read_bytes()
+
+        try:
+            original_text = original_bytes.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise PatchForgeError(
+                f"{relative_path} is not valid UTF-8."
+            ) from exc
+
+        try:
+            config = json.loads(original_text)
+        except json.JSONDecodeError as exc:
+            raise PatchForgeError(
+                f"Invalid JSON in {relative_path}: {exc}"
+            ) from exc
+
+        if not isinstance(config, dict):
+            raise PatchForgeError(
+                f"{relative_path} must contain a JSON object."
+            )
+
+        newline = detect_newline(original_text)
+        original_hash = sha256_bytes(original_bytes)
+
+    else:
+        if not create_if_missing:
+            raise PatchForgeError(
+                "Mission Control config does not exist: "
+                f"{relative_path}"
+            )
+
+        config = {}
+        newline = "\n"
+        original_bytes = b""
+        original_hash = ""
+
+    operation_count = 0
+
+    operation_count += mission_control_mapping(
+        config,
+        section.get("set"),
+        "missionControl.set",
+        require_existing=False,
+    )
+
+    operation_count += mission_control_mapping(
+        config,
+        section.get("replace"),
+        "missionControl.replace",
+        require_existing=True,
+    )
+
+    append_spec = section.get("append")
+
+    if append_spec is not None:
+        if not isinstance(append_spec, dict):
+            raise PatchForgeError(
+                "missionControl.append must be an object."
+            )
+
+        for path, values in append_spec.items():
+            if not isinstance(values, list):
+                raise PatchForgeError(
+                    f"missionControl.append.{path} must be a list."
+                )
+
+            target = mission_control_get(
+                config,
+                path,
+                "missionControl.append",
+            )
+
+            if not isinstance(target, list):
+                raise PatchForgeError(
+                    f"missionControl.append target is not a list: {path}"
+                )
+
+            target.extend(copy.deepcopy(values))
+            operation_count += len(values)
+
+    remove_spec = section.get("remove")
+
+    if remove_spec is not None:
+        if not isinstance(remove_spec, dict):
+            raise PatchForgeError(
+                "missionControl.remove must be an object."
+            )
+
+        for path, values in remove_spec.items():
+            if not isinstance(values, list):
+                raise PatchForgeError(
+                    f"missionControl.remove.{path} must be a list."
+                )
+
+            target = mission_control_get(
+                config,
+                path,
+                "missionControl.remove",
+            )
+
+            if not isinstance(target, list):
+                raise PatchForgeError(
+                    f"missionControl.remove target is not a list: {path}"
+                )
+
+            for value in values:
+                if value not in target:
+                    raise PatchForgeError(
+                        f"missionControl.remove could not find "
+                        f"{value!r} in {path}."
+                    )
+
+                target.remove(value)
+                operation_count += 1
+
+    unset_spec = section.get("unset")
+
+    if unset_spec is not None:
+        if not isinstance(unset_spec, list):
+            raise PatchForgeError(
+                "missionControl.unset must be a list."
+            )
+
+        for index, path in enumerate(unset_spec):
+            if not isinstance(path, str):
+                raise PatchForgeError(
+                    f"missionControl.unset[{index}] must be a string."
+                )
+
+            parent, key = mission_control_parent(
+                config,
+                path,
+                f"missionControl.unset[{index}]",
+                create=False,
+            )
+
+            if key not in parent:
+                raise PatchForgeError(
+                    "missionControl.unset path does not exist: "
+                    f"{path}"
+                )
+
+            del parent[key]
+            operation_count += 1
+
+    if operation_count == 0:
+        raise PatchForgeError(
+            "missionControl contains no metadata operations."
+        )
+
+    output_text = (
+        json.dumps(
+            config,
+            indent=2,
+            ensure_ascii=False,
+        )
+        + "\n"
+    )
+
+    if newline != "\n":
+        output_text = output_text.replace(
+            "\n",
+            newline,
+        )
+
+    new_bytes = output_text.encode("utf-8")
+
+    if original_exists and new_bytes == original_bytes:
+        raise PatchForgeError(
+            "missionControl operations produced no change."
+        )
+
+    return PreparedFile(
+        relative_path=relative_path,
+        absolute_path=absolute_path,
+        original_exists=original_exists,
+        original_bytes=original_bytes,
+        new_bytes=new_bytes,
+        original_sha256=original_hash,
+        new_sha256=sha256_bytes(new_bytes),
+    )
+
+
 def prepare_patch(
     repo: Path,
     spec: dict[str, Any],
@@ -366,12 +740,22 @@ def prepare_patch(
     )
 
     files = spec.get(
-        "files"
+        "files",
+        [],
     )
 
-    if not isinstance(files, list) or not files:
+    mission_control = spec.get(
+        "missionControl"
+    )
+
+    if not isinstance(files, list):
         raise PatchForgeError(
-            "Patch spec must contain a non-empty files list."
+            "Patch spec 'files' must be a list."
+        )
+
+    if not files and mission_control is None:
+        raise PatchForgeError(
+            "Patch spec must contain files and/or missionControl."
         )
 
     prepared: list[PreparedFile] = []
@@ -575,6 +959,17 @@ def prepare_patch(
                     new_bytes
                 ),
             )
+        )
+
+    mission_control_file = prepare_mission_control_patch(
+        repo,
+        spec,
+        seen_paths,
+    )
+
+    if mission_control_file is not None:
+        prepared.append(
+            mission_control_file
         )
 
     return prepared
@@ -1611,114 +2006,82 @@ def cmd_apply(
         "Running Patch Forge workflow..."
     )
 
-    print(
-        "1/4 Preflight checks"
-    )
-
-    preflight = run_preflight(
+    result = run_workflow(
         repo,
         spec,
     )
 
-    for result in preflight:
+    print(
+        "1/5 Preflight checks"
+    )
+
+    if result.preflight:
+        for item in result.preflight:
+            print(
+                f"  [PASS] {item.name}"
+            )
+    else:
         print(
-            f"  [PASS] {result.name}"
+            "  No preflight checks configured."
         )
 
     print(
-        "2/4 Deterministic dry run"
-    )
-
-    prepared = prepare_patch(
-        repo,
-        spec,
+        "2/5 Deterministic dry run"
     )
 
     print_plan(
-        prepared
+        result.prepared
     )
 
     print(
-        "3/4 Apply"
+        "3/5 Apply"
     )
-
-    label = spec.get(
-        "name"
-    )
-
-    if (
-        label is not None
-        and not isinstance(
-            label,
-            str,
-        )
-    ):
-        raise PatchForgeError(
-            "Patch name must be a string."
-        )
-
-    checkpoint = create_checkpoint(
-        repo,
-        prepared,
-        label=label,
-    )
-
-    try:
-        apply_prepared_files(
-            prepared
-        )
-    except Exception:
-        shutil.rmtree(
-            checkpoint,
-            ignore_errors=True,
-        )
-        raise
 
     print(
         "  Patch applied successfully."
     )
 
-    print(
-        f"  Checkpoint: {checkpoint.name}"
-    )
-
-    print(
-        "4/4 Verification"
-    )
-
-    try:
-        verify_results = run_verification(
-            repo,
-            spec,
+    if result.checkpoint is not None:
+        print(
+            f"  Checkpoint: {result.checkpoint.name}"
         )
 
-    except Exception:
-        if get_rollback_on_verify_failure(
-            spec
-        ):
-            restore_checkpoint(
-                repo,
-                checkpoint,
-            )
+    print(
+        "4/5 Build + verification"
+    )
 
+    if result.build:
+        for item in result.build:
             print(
-                "  Verification failed."
+                f"  [PASS] Build: {item.name}"
             )
+    else:
+        print(
+            "  No build checks configured."
+        )
 
+    if result.verify:
+        for item in result.verify:
             print(
-                "  Automatic rollback completed."
-            )
-
-        raise
-
-    if verify_results:
-        for result in verify_results:
-            print(
-                f"  [PASS] {result.name}"
+                f"  [PASS] Verify: {item.name}"
             )
     else:
         print(
             "  No verification checks configured."
+        )
+
+    print(
+        "5/5 Tests"
+    )
+
+    if result.tests:
+        for item in result.tests:
+            print(
+                f"  [PASS] {item.name}"
+            )
+    else:
+        print(
+            "  No tests configured."
         )
 
     print()
